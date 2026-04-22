@@ -66,12 +66,15 @@ tests/     Vitest 测试
 
 ### 4.1 必须通过 Provider Adapter
 
-```ts
-// ❌ 禁止直接
-import Anthropic from '@anthropic-ai/sdk';
-const client = new Anthropic(...);
+V1 走订阅模式：两侧都通过 CLI 子进程池；**禁止**直接 spawn 或直连 API。
 
-// ✅ 正确
+```ts
+// ❌ 禁止：直接 spawn CLI 或直连 API
+import { spawn } from 'node:child_process';
+spawn('claude', ['-p', ...]);   // 绕过池化/超时/trace
+// 同理禁用 @anthropic-ai/sdk、openai SDK 等 API 客户端
+
+// ✅ 正确：通过 Router 选 Provider
 import { pickProvider } from '@/providers/router';
 const provider = pickProvider({ task: 'vision' });
 const resp = await provider.vision({ ... });
@@ -184,17 +187,19 @@ docs: 补充 M3 Codex 视觉支持的阻塞点
 ## 9. 安全
 
 - `.env` 入 `.gitignore`，**绝不**提交
-- API Key 只从 `process.env` 读；启动时校验缺失即早失败
 - 所有外部输入（微信 payload、URL 参数）经 Zod 校验
 - SQL 只用 prepared statements；**禁止**字符串拼接
 - 图片上传：白名单 mime + 头 magic byte 校验 + 大小 ≤ 20MB
+- `parent_token` / `PARENT_LINK_SIGNING_SECRET` / `OPENCLAW_WEBHOOK_SECRET` **不得落日志**；Pino 配置 redact
+- 受 cookie 鉴权的路由**必须**在 DAO 层校验 `child_id`（不能只依赖中间件）
 
 ## 10. 性能
 
-- 启动 **冷启动 ≤ 3s**（Next build 后）
-- 单份作业端到端 **P50 ≤ 35s**
+- 启动 **冷启动 ≤ 3s**（Next build 后，不含 CLI 池预热）
+- 单份作业端到端 **P50 ≤ 45s / P90 ≤ 60s**（订阅模式 CLI 池冷启动有 1-3s 额外开销）
 - SQLite 开启 WAL（`PRAGMA journal_mode=WAL`）
 - 大题级并发默认 4，从 `WORKFLOW_CONCURRENCY` 调
+- CLI 进程池启动即预热 1 个常驻进程，避免首请求冷启动
 
 ## 11. 代码审查清单（自查）
 

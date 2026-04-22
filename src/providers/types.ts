@@ -23,10 +23,9 @@ export interface VisionRequest extends ChatRequest {
   images: VisionImage[];
 }
 
+// 订阅模式下 CLI 不暴露 per-call token/cost；只保留延迟与模型名做 trace
 export interface Usage {
-  tokensIn: number;
-  tokensOut: number;
-  costCents?: number;
+  durationMs: number;
 }
 
 export interface ChatResponse {

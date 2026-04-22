@@ -6,9 +6,12 @@
 
 - [x] 建目录、根配置、scaffolding ← *本次已完成*
 - [x] 写五份设计文档 ← *本次已完成*
+- [x] 切换到订阅模式（Claude CLI + Codex CLI，对称）← *本次已完成*
+- [x] 数据模型对齐：错题本快照、家长 parent_token、workflow_traces 移除费用字段 ← *本次已完成*
+- [x] 鉴权闭环骨架（auth.ts + middleware + /r 短链接受 + /auth-required）← *本次已完成*
 - [ ] 安装依赖（`npm install`），跑通 `next dev`
-- [ ] `.env.example` → `.env`，填入 `ANTHROPIC_API_KEY`
-- [ ] 本机验证 `codex --version` 可执行
+- [ ] `.env.example` → `.env`，生成 `PARENT_LINK_SIGNING_SECRET`（≥ 32 字节随机串）
+- [ ] 本机 `claude login` + `codex login`；运行 `npm run check:cli` 通过
 
 ## Milestone M1 · 数据层（1-2 天）· P0
 
@@ -25,23 +28,26 @@
 - [ ] 人工抽查 30 条确认命名/层级合理
 - [ ] 目标：数学 ~300 个知识点节点
 
-## Milestone M3 · Provider Adapter（2-3 天）· P0
+## Milestone M3 · Provider Adapter（3-4 天）· P0
 
-- [ ] `src/providers/types.ts` 接口定义
-- [ ] `src/providers/claude.ts`：
-  - [ ] `chat` / `vision` 实现
-  - [ ] prompt caching（`cache_control`）
-  - [ ] 重试（指数退避）+ 超时
-  - [ ] 费用记录（从响应 usage 提取）
-- [ ] `src/providers/codex.ts`：
-  - [ ] 子进程池（大小从环境变量）
+两侧对称走 CLI 子进程（订阅模式），不使用 API Key。
+
+- [x] `src/providers/types.ts` 接口定义 ← *scaffolding 已完成*
+- [ ] `src/providers/claude.ts`（CLI 子进程池）：
+  - [ ] spawn 策略：`claude -p --output-format stream-json --permission-mode bypassPermissions`
+  - [ ] `chat` / `vision` 实现（图片路径以 `@file://` 或 stdin base64，以实测为准）
+  - [ ] 池化：`CLAUDE_POOL_SIZE` 常驻，单进程串行
+  - [ ] 超时 + SIGKILL + 重启
+  - [ ] 错误码映射 → `UpstreamError('claude', ...)`
+- [ ] `src/providers/codex.ts`（CLI 子进程池，对称）：
+  - [ ] spawn 策略：`codex exec --model <m> --json`
   - [ ] stdin/stdout JSON 协议
-  - [ ] 健康检查 + 自动重启
-  - [ ] 超时 + SIGKILL
-  - [ ] 错误码映射
-  - [ ] **需先验证 Codex CLI 的实际输出格式和视觉支持**（阻塞点）
-- [ ] `src/providers/router.ts`：按 task + 环境变量覆盖选择
-- [ ] 集成测试：用简短 prompt 分别调通 Claude / Codex
+  - [ ] 池化：`CODEX_POOL_SIZE`
+  - [ ] 超时 + SIGKILL + 重启
+  - [ ] 错误码映射 → `UpstreamError('codex', ...)`
+  - [ ] **先实测 Codex CLI 视觉支持**（阻塞点）；不支持则 Router 不派发 vision
+- [ ] `src/providers/router.ts`：按 task + 环境变量覆盖选择（已有骨架）
+- [ ] 集成测试：用简短 prompt 分别调通 Claude / Codex（vision + chat 各一条）
 
 ## Milestone M4 · DAG Runner（1-2 天）· P0
 
@@ -85,26 +91,37 @@
 - [ ] `src/mcp/sympy.ts`：TS 侧包装子进程
 - [ ] 样例集：10 道典型数学题的等价判定用例
 
-## Milestone M7 · 微信入口（1 天）· P0
+## Milestone M7 · 微信入口 + 鉴权（1-2 天）· P0
 
-- [ ] `app/api/wechat/webhook/route.ts`：接收消息 + 鉴权
-- [ ] `src/wechat/openclawAdapter.ts`：回推短链
+- [ ] `app/api/wechat/webhook/route.ts`：接收消息 + `X-OpenClaw-Secret` 鉴权
+- [ ] 首次消息时调 `findOrCreateByOpenId` 生成 `parent_token`
+- [x] `src/lib/auth.ts`：signShortLink / verifyShortLink / buildShortLinkUrl / acceptShortLink ← *本次已完成*
+- [x] `middleware.ts`：cookie 存在性守卫 → 受保护路由 ← *本次已完成*
+- [x] `/r/:shortId`：短链首次进入校验签名 → 写 cookie → 302 ← *本次已完成*
+- [x] `/auth-required` 提示页 ← *本次已完成*
+- [x] `src/wechat/openclawAdapter.ts`：`pushBackAssignmentDone` 使用 `buildShortLinkUrl` ← *本次已完成*
 - [ ] 异步任务：worker 调用 AssignmentWorkflow
 - [ ] 占位回复（"正在批改中…"）实现
+- [ ] 集成测试：模拟 webhook → 触发工作流 → 验证 cookie 下发 / 跨 child 访问被 403
 
 ## Milestone M8 · 结果页 + 错题本页（2-3 天）· P0
 
 - [ ] `app/layout.tsx`：全局样式、字体
-- [ ] `app/r/[shortId]/page.tsx`：大题-小题层级 SSR 渲染
+- [ ] `app/r/[shortId]/page.tsx`：大题-小题层级 SSR 渲染（鉴权已就绪，补数据层）
   - [ ] LaTeX 渲染：`katex`（轻量，纯 CSS + 一次 JS）
   - [ ] 图片懒加载
+  - [ ] 校验 `assignment.childId === cookieChild.id`，否则 404
   - [ ] "加入错题本" / "批改有误" 按钮（Server Actions）
 - [ ] `app/mistakes/page.tsx`：
-  - [ ] 默认时间轴
+  - [ ] 默认时间轴（读 `mistakes.snapshot_*` 列，不 JOIN sub_questions）
   - [ ] 筛选条（知识点多选、日期范围、已掌握切换）
   - [ ] 薄弱点 Top 5 卡片
-- [ ] API Routes：`assignment/:id` `mistakes/:childId` `feedback` `mistakes/:id PATCH`
-- [ ] 图片静态托管：`/uploads/*` 路由（Next.js 自定义）
+- [ ] API Routes（child 作用域由 cookie 推导）：
+  - [ ] `GET /api/assignment/:id`、`DELETE /api/assignment/:id`、`GET /api/assignment?...`
+  - [ ] `GET /api/mistakes`、`POST /api/mistakes`（复制快照 + 复制图）
+  - [ ] `PATCH /api/mistakes/:id`、`DELETE /api/mistakes/:id`、`GET /api/mistakes/weak-points`
+  - [ ] `POST /api/feedback`
+- [ ] 图片静态托管：`/uploads/*` 路由（Next.js 自定义；`/uploads/mistakes/<childId>/...` 需 cookie 校验）
 
 ## Milestone M9 · 调试页（1 天）· P1
 
@@ -115,7 +132,11 @@
 ## Milestone M10 · 测试与发布（1-2 天）· P0
 
 - [ ] 准备 5-10 张真实数学作业图作为回归集（`tests/fixtures/`）
+  - 覆盖：计算/解方程、选择、填空、应用题、函数、几何计算、**至少 1 道几何证明以验证正确降级为 unmarked**
 - [ ] E2E 手动跑：验收指标对齐（01-产品方案 §10）
+  - P50 ≤ 45s / P90 ≤ 60s
+  - 非目标题型 0 误判（不应出现 ✓/✗）
+- [ ] 鉴权回归：从 A 家长 cookie 请求 B 家长的 shortId / mistakeId → 均应 403/404
 - [ ] PM2 开机自启 / nssm Windows 服务任选其一
 - [ ] 内网访问验证：局域网 IP + 端口
 
@@ -144,8 +165,10 @@
 ## 阻塞点 / 风险
 
 - ⚠ **Codex CLI 视觉支持与输出格式**：M3 前必须验证，若不支持视觉则 Router 调整为 Claude 独揽视觉
+- ⚠ **Claude Code CLI `--output-format stream-json` 的实际分帧/错误行为**：M3 前实测一版，固化 parser
+- ⚠ **订阅模式登录态稳定性**：`~/.claude` `~/.codex` 令牌过期时 CLI 表现需验证；需加定期 `claude doctor` 心跳
 - ⚠ **Claude Vision 对中文几何图/手写混排的稳定性**：M5 前需 10-20 张样本实测
-- ⚠ **SymPy 对中学几何题（含辅助线、证明）支持有限**：M6 接入后，证明题可能默认标"未批改"
+- ⚠ **SymPy 对中学几何题（含辅助线、证明）支持有限**：几何证明 V1 明确列为非目标（见产品方案 §2.1），不纳入批改
 - ⚠ **家长反馈成为误导**：一次错点反馈不该立即 few-shot，需攒阈值
 
 ## 里程碑时间表（估）
@@ -155,13 +178,13 @@
 | M0 | 1 d | 1 |
 | M1 | 2 d | 3 |
 | M2 | 1 d | 4 |
-| M3 | 3 d | 7 |
-| M4 | 2 d | 9 |
-| M5 | 6 d | 15 |
-| M6 | 1 d | 16 |
-| M7 | 1 d | 17 |
-| M8 | 3 d | 20 |
-| M9 | 1 d | 21 |
-| M10 | 2 d | **23 d** |
+| M3 | 4 d | 8 |
+| M4 | 2 d | 10 |
+| M5 | 6 d | 16 |
+| M6 | 1 d | 17 |
+| M7 | 2 d | 19 |
+| M8 | 3 d | 22 |
+| M9 | 1 d | 23 |
+| M10 | 2 d | **25 d** |
 
-V1 全开发周期预计 **4-5 周（含调试/迭代）**。
+V1 全开发周期预计 **5 周（含调试/迭代）**。M3、M7 因切换到 CLI 子进程 + 鉴权闭环各加一天。

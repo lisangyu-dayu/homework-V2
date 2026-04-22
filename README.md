@@ -15,16 +15,24 @@
 - Next.js 15 (App Router, SSR)
 - TypeScript strict
 - SQLite (better-sqlite3)
-- Claude Messages API + Codex CLI（Provider Adapter）
+- Claude Code CLI + Codex CLI（对称 Provider Adapter · **订阅模式，不用 API Key**）
 - SymPy MCP（数学等价验证）
 - 部署：Windows 本机（4090 常开）
 
 ## 快速开始
 
 ```bash
+# 1) 本机先登录两侧 CLI（订阅模式的必要步骤）
+claude login
+codex login
+
+# 2) 配置
 cp .env.example .env
-# 填入 ANTHROPIC_API_KEY，确保 codex CLI 可执行
+# 编辑 .env：生成 PARENT_LINK_SIGNING_SECRET（≥32 字节随机），填写 ADMIN_USER/PASS、OPENCLAW_*
+
+# 3) 启动
 npm install
+npm run check:cli      # 验证两侧 CLI 可用
 npm run db:init
 npm run db:seed-kp
 npm run dev
@@ -46,7 +54,7 @@ homework-V2/
 ├── app/              Next.js (App Router) · 页面 + API Route
 ├── src/
 │   ├── workflow/     业务 DAG（纯 TS，编排核心）
-│   ├── providers/    LLM Provider Adapter（Claude + Codex CLI）
+│   ├── providers/    LLM Provider Adapter（Claude CLI + Codex CLI）
 │   ├── mcp/          MCP 客户端（SymPy、Knowledge-Points 等）
 │   ├── db/           SQLite schema + client
 │   ├── wechat/       OpenClaw 插件消息协议适配

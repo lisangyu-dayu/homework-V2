@@ -21,7 +21,7 @@
 │  │ App Router（Next.js）                              │  │
 │  │   /api/wechat/webhook    ← 入口                   │  │
 │  │   /api/assignment/:id    ← 结果 JSON              │  │
-│  │   /api/mistakes/:childId ← 错题本                 │  │
+│  │   /api/mistakes          ← 错题本（cookie 推导） │  │
 │  │   /r/:shortId            ← 结果页（SSR）          │  │
 │  │   /mistakes              ← 错题本页（SSR）        │  │
 │  └───────────────────────────────────────────────────┘  │
@@ -37,7 +37,7 @@
 │                                                          │
 │  ┌──────────────────┐  ┌──────────────────────────┐   │
 │  │ Provider Adapter │  │ MCP 客户端                │   │
-│  │  - Claude SDK    │  │  - SymPy                 │   │
+│  │  - Claude CLI    │  │  - SymPy                 │   │
 │  │  - Codex CLI     │  │  - KnowledgePoints       │   │
 │  │  - Router        │  │  - ImageCrop             │   │
 │  └──────────────────┘  └──────────────────────────┘   │
@@ -71,16 +71,18 @@
 | # | 节点 | 位置 | 输入 | 输出 | 模型/工具 |
 |---|---|---|---|---|---|
 | 1 | `preprocess` | `src/workflow/nodes/preprocess.ts` | 原图 buffer | 矫正/增强图 + 元数据 | Sharp（本地 CPU） |
-| 2 | `layoutSplit` | 同上 | 整页图 | 大题树（含 bbox） | Claude Vision（V1 全走 VLM）|
-| 3 | `parseQuestion` | 同上 | 单小题图 | 结构化 JSON（题面+图表+条件）| Claude Sonnet 4.6 |
-| 4 | `selfSolve` | 同上 | 题面 JSON | 解题步骤 + 最终答案 + 置信度 | Codex (GPT-5.4) 首选 |
+| 2 | `layoutSplit` | 同上 | 整页图 | 大题树（含 bbox） | Claude CLI · vision（V1 全走 VLM）|
+| 3 | `parseQuestion` | 同上 | 单小题图 | 结构化 JSON（题面+图表+条件）| Claude CLI |
+| 4 | `selfSolve` | 同上 | 题面 JSON | 解题步骤 + 最终答案 + 置信度 | Codex CLI 首选，Claude CLI 兜底 |
 | 5 | `verify` | 同上 | 题面 + 自解答案 | 一致/不一致 + 补充解 | SymPy MCP |
-| 6 | `extractStudentAnswer` | 同上 | 单题图 | 学生答案（可能为 null）| Claude Vision（机会性）|
+| 6 | `extractStudentAnswer` | 同上 | 单题图 | 学生答案（可能为 null）| Claude CLI · vision（机会性）|
 | 7 | `grade` | 同上 | 标准答案 + 学生答案 | ✓/✗/—（二态+跳过）| 代码规则 |
-| 8 | `generateExplanation` | 同上 | 题面 + 解 + 判定 | 讲解文本（Markdown/LaTeX）| Claude Sonnet 4.6 |
+| 8 | `generateExplanation` | 同上 | 题面 + 解 + 判定 | 讲解文本（Markdown/LaTeX）| Claude CLI |
 | 9 | `kpTagging` | 同上 | 题面 | 知识点 tag[] | KnowledgePoints MCP + LLM |
 | 10 | `persist` | 同上 | 所有字段 | assignmentId | SQLite |
 | 11 | `render` | 同上 | assignmentId | shortId + URL | 本地生成 |
+
+具体模型名（如 Claude sonnet、Codex gpt-5.x）通过 `.env` 的 `CLAUDE_DEFAULT_MODEL` / `CODEX_DEFAULT_MODEL` 配置，代码不硬编码品牌版本。
 
 ### 3.2 并发与重试策略
 
@@ -130,17 +132,41 @@ export interface VisionRequest extends ChatRequest {
 }
 ```
 
-### 4.2 Claude 实现
+### 4.2 订阅模式（对称 CLI 方案）
 
-- 依赖：`@anthropic-ai/sdk`
-- 原生支持 prompt caching（使用 `cache_control` 字段）
-- 视觉消息用 `image` content block
+V1 两侧都走**本机已登录的 CLI 子进程**，不使用 API Key。
+理由：
+- Anthropic 自 2026-04 起禁止 Agent SDK 复用订阅 OAuth，官方唯一合规路径是 Claude Code CLI
+- 为避免两侧实现发散与迁移成本，Codex 也采用 CLI 子进程，接口与池化策略与 Claude 对称
+- 启动前由 `scripts/check-cli.ts` 探测 `claude --version` 与 `codex --version`；未安装/未登录则拒绝启动
 
-### 4.3 Codex 实现（CLI 子进程）
+凭据来源（只读复用）：
+- Claude：`~/.claude/` 下的登录态（由 `claude login` 写入）
+- Codex：`~/.codex/auth.json`（由 `codex login` 写入，或 `CODEX_HOME` 覆盖）
+
+### 4.3 Claude 实现（CLI 子进程）
+
+```
+// src/providers/claude.ts
+// child_process.spawn('claude', [
+//   '-p', '--output-format', 'stream-json',
+//   '--permission-mode', 'bypassPermissions',
+//   '--model', 'sonnet',
+// ])
+// stdin 传 prompt + 可选图片引用，stdout 行分隔 JSON
+```
+
+关键点：
+- **单例子进程池**（`CLAUDE_POOL_SIZE=4` 默认）
+- **单进程串行、池级并发**：CLI 内状态机不支持多路复用
+- **超时控制**：`CLAUDE_TIMEOUT_MS`，超时 SIGKILL + 重启
+- **prompt 缓存**：沿用 CLI 内置行为，无需代码层干预
+
+### 4.4 Codex 实现（CLI 子进程）
 
 ```
 // src/providers/codex.ts
-// 通过 child_process.spawn('codex', ['exec', '--model', 'gpt-5.4', '--json'])
+// child_process.spawn('codex', ['exec', '--model', 'gpt-5.4', '--json'])
 // stdin 传 prompt，stdout 读 JSON 响应
 ```
 
@@ -148,10 +174,10 @@ export interface VisionRequest extends ChatRequest {
 - **单例子进程池**（`CODEX_POOL_SIZE=3` 默认），避免每次 fork 开销
 - **健康检查**：启动时 `codex --version` 探测
 - **超时控制**：`CODEX_TIMEOUT_MS`，超时 SIGKILL + 重启进程
-- **错误码映射**：CLI 非零退出 → `ProviderError`（包含 stderr 片段）
-- **视觉输入**：V1 Codex CLI 视觉能力视实际支持情况，若不支持 → 视觉任务全部路由到 Claude（Router 层决定）
+- **错误码映射**：CLI 非零退出 → `UpstreamError`（包含 stderr 片段）
+- **视觉输入**：V1 Codex CLI 视觉能力需 M3 实测；若不支持 → 视觉任务全部路由到 Claude（Router 层决定）
 
-### 4.4 Router
+### 4.5 Router
 
 `src/providers/router.ts`：
 
@@ -164,148 +190,88 @@ export interface VisionRequest extends ChatRequest {
 
 路由规则代码硬编码，环境变量可覆盖（`PROVIDER_OVERRIDE_<TASK>=claude|codex`）。
 
-### 4.5 Prompt 缓存分层（仅 Claude）
+### 4.6 Prompt 缓存分层（Claude CLI 内置）
 
 ```
-[system]     角色 + 输出 schema + 通用 rubric         · 缓存（永久）
-[assignment] 本次作业学科/年级/共用题干                · 缓存（作业内）
+[system]     角色 + 输出 schema + 通用 rubric         · CLI 内置缓存
+[assignment] 本次作业学科/年级/共用题干                · CLI 内置缓存
 [turn]       单题图 + 题面 JSON                       · 不缓存
 ```
 
+订阅模式下 CLI 缓存命中率不可编程控制，代码层只保证 system/assignment 文本稳定（逐字节相同）即可最大化命中。
 Codex CLI 侧 V1 暂不做缓存（等 CLI 支持度验证）。
 
 ## 5. 数据模型（SQLite）
 
-### 5.1 表设计
+权威来源：`src/db/migrations/001_init.sql`。以下为讲解版本，与 SQL 严格对齐；改动以 SQL 为准。
+
+### 5.1 概览
+
+- `children`：一个 `openId` = 一个孩子（V1）。`parent_token` 作为签名短链与 cookie 凭据使用，永不外泄。
+- `assignments` / `major_questions` / `sub_questions`：作业→大题→小题层级；`sub_questions` 级联 `ON DELETE CASCADE`。
+- `knowledge_tags` + `sub_question_tags`：知识点主数据与多对多关联。
+- `mistakes`：**错题本采用自包含快照**，不通过外键引用 `sub_questions`（详见 §5.3）。
+- `feedback`：家长反馈；外键 `ON DELETE CASCADE` 到 `sub_questions`——反馈的价值依赖题面上下文，作业删了单独留反馈没有 few-shot 复现意义。
+- `workflow_traces`：节点级调试 trace。
+- 订阅模式下没有按次计费，因此 `assignments` 与 `workflow_traces` **不记录 cost_cents / tokens_in / tokens_out**。
+
+### 5.2 核心约束
+
+- `children.openid UNIQUE`、`children.parent_token UNIQUE`
+- `assignments.short_id UNIQUE`，`assignments.child_id → children.id`（硬 FK）
+- `major_questions.assignment_id → assignments.id ON DELETE CASCADE`
+- `sub_questions.major_id → major_questions.id ON DELETE CASCADE`
+- `feedback.sub_question_id → sub_questions.id ON DELETE CASCADE`
+- `sub_question_tags (sub_question_id, tag_id)` 复合主键
+- 所有 JSON 字段以 `*_json` 后缀命名；应用层负责 Zod 校验
+
+### 5.3 错题本设计（快照 · 软引用）
+
+为了让「删除作业」与「错题本保留」这两个生命周期互不干扰，`mistakes` 表采用**自包含快照**：
 
 ```sql
--- 孩子（V1 一个 openId = 一个 child）
-CREATE TABLE children (
-  id          TEXT PRIMARY KEY,       -- nanoid
-  openid      TEXT UNIQUE NOT NULL,   -- 微信 openid
-  nickname    TEXT,
-  grade       INTEGER,
-  created_at  INTEGER NOT NULL
-);
-
--- 作业
-CREATE TABLE assignments (
-  id          TEXT PRIMARY KEY,
-  short_id    TEXT UNIQUE NOT NULL,   -- URL 短码
-  child_id    TEXT NOT NULL,
-  subject     TEXT NOT NULL,          -- V1: 'math'
-  original_image_path TEXT NOT NULL,
-  status      TEXT NOT NULL,          -- 'processing'|'done'|'failed'
-  created_at  INTEGER NOT NULL,
-  completed_at INTEGER,
-  total_count INTEGER,
-  correct_count INTEGER,
-  wrong_count INTEGER,
-  unmarked_count INTEGER,
-  cost_cents  INTEGER,                 -- 本次 API 成本（分）
+CREATE TABLE mistakes (
+  id                      TEXT PRIMARY KEY,
+  child_id                TEXT NOT NULL,
+  source_sub_question_id  TEXT,            -- 软引用，无 FK
+  source_assignment_id    TEXT,            -- 软引用，无 FK
+  -- 快照字段（加入错题本时从 sub_question 复制）
+  snapshot_crop_path           TEXT NOT NULL,  -- uploads/mistakes/<childId>/<mistakeId>.jpg
+  snapshot_subject             TEXT NOT NULL,
+  snapshot_parsed_stem_json    TEXT NOT NULL,
+  snapshot_solution_steps_json TEXT NOT NULL,
+  snapshot_final_answer        TEXT NOT NULL,
+  snapshot_student_answer      TEXT,
+  snapshot_error_type          TEXT,
+  snapshot_explanation_md      TEXT NOT NULL,
+  snapshot_knowledge_tags_json TEXT NOT NULL,  -- [{id,name,confidence}]
+  -- 生命周期
+  added_at    INTEGER NOT NULL,
+  source      TEXT NOT NULL,          -- 'auto'|'manual'
+  resolved    INTEGER NOT NULL DEFAULT 0,
+  resolved_at INTEGER,
   FOREIGN KEY (child_id) REFERENCES children(id)
 );
-
--- 大题
-CREATE TABLE major_questions (
-  id            TEXT PRIMARY KEY,
-  assignment_id TEXT NOT NULL,
-  number        TEXT NOT NULL,         -- "一" / "1"
-  order_index   INTEGER NOT NULL,
-  stem          TEXT,                  -- 共用题干（阅读材料）
-  FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
-);
-
--- 小题
-CREATE TABLE sub_questions (
-  id                 TEXT PRIMARY KEY,
-  major_id           TEXT NOT NULL,
-  number             TEXT NOT NULL,    -- "(1)" / "①"
-  order_index        INTEGER NOT NULL,
-  crop_path          TEXT NOT NULL,
-  parsed_stem_json   TEXT NOT NULL,    -- 题面 JSON
-  solution_steps_json TEXT NOT NULL,   -- 解题步骤数组
-  final_answer       TEXT NOT NULL,
-  confidence         REAL NOT NULL,
-  verdict            TEXT NOT NULL,    -- 'correct'|'wrong'|'unmarked'
-  student_answer     TEXT,             -- 可能为 null
-  error_type         TEXT,             -- 概念不清/计算失误/漏解/题意偏差
-  explanation_md     TEXT NOT NULL,
-  FOREIGN KEY (major_id) REFERENCES major_questions(id) ON DELETE CASCADE
-);
-
--- 小题-知识点关联
-CREATE TABLE sub_question_tags (
-  sub_question_id TEXT NOT NULL,
-  tag_id          TEXT NOT NULL,
-  confidence      REAL NOT NULL,
-  PRIMARY KEY (sub_question_id, tag_id),
-  FOREIGN KEY (sub_question_id) REFERENCES sub_questions(id) ON DELETE CASCADE,
-  FOREIGN KEY (tag_id) REFERENCES knowledge_tags(id)
-);
-
--- 知识点主数据
-CREATE TABLE knowledge_tags (
-  id          TEXT PRIMARY KEY,
-  subject     TEXT NOT NULL,
-  grade_min   INTEGER,
-  grade_max   INTEGER,
-  name        TEXT NOT NULL,
-  parent_id   TEXT,
-  brief       TEXT,
-  aliases_json TEXT,
-  FOREIGN KEY (parent_id) REFERENCES knowledge_tags(id)
-);
-
--- 错题本
-CREATE TABLE mistakes (
-  id                TEXT PRIMARY KEY,
-  child_id          TEXT NOT NULL,
-  sub_question_id   TEXT NOT NULL,
-  added_at          INTEGER NOT NULL,
-  resolved          INTEGER NOT NULL DEFAULT 0,  -- 0/1
-  resolved_at       INTEGER,
-  source            TEXT NOT NULL,               -- 'auto'|'manual'
-  FOREIGN KEY (child_id) REFERENCES children(id),
-  FOREIGN KEY (sub_question_id) REFERENCES sub_questions(id)
-);
-
--- 家长反馈
-CREATE TABLE feedback (
-  id              TEXT PRIMARY KEY,
-  sub_question_id TEXT NOT NULL,
-  feedback_type   TEXT NOT NULL,      -- 'grading_wrong'|'confirm_correct'|'manual_verdict'
-  payload_json    TEXT,
-  created_at      INTEGER NOT NULL,
-  FOREIGN KEY (sub_question_id) REFERENCES sub_questions(id)
-);
-
--- 工作流 trace（调试/监控）
-CREATE TABLE workflow_traces (
-  id              TEXT PRIMARY KEY,
-  assignment_id   TEXT NOT NULL,
-  node_name       TEXT NOT NULL,
-  status          TEXT NOT NULL,       -- 'success'|'failed'|'skipped'
-  duration_ms     INTEGER,
-  input_json      TEXT,
-  output_json     TEXT,
-  error_msg       TEXT,
-  model_used      TEXT,
-  tokens_in       INTEGER,
-  tokens_out      INTEGER,
-  cost_cents      INTEGER,
-  created_at      INTEGER NOT NULL,
-  FOREIGN KEY (assignment_id) REFERENCES assignments(id)
-);
-
--- 索引
-CREATE INDEX idx_assignments_child ON assignments(child_id, created_at DESC);
-CREATE INDEX idx_mistakes_child ON mistakes(child_id, added_at DESC);
-CREATE INDEX idx_sub_tags_tag ON sub_question_tags(tag_id);
-CREATE INDEX idx_traces_assignment ON workflow_traces(assignment_id);
 ```
 
-### 5.2 迁移策略
+关键点：
+- 加入错题本时，应用层**复制裁剪图**到 `uploads/mistakes/<childId>/<mistakeId>.jpg`，并把 sub_question 的题面/解/讲解/标签复制到 snapshot_* 字段
+- 因此删除作业（级联删 `sub_questions`）**不影响错题本**；错题本清理也不回撤作业
+- `source_sub_question_id` / `source_assignment_id` 仅作调试线索，应用层不得依赖其存在
+
+### 5.4 索引
+
+```sql
+idx_assignments_child  ON assignments(child_id, created_at DESC)
+idx_mistakes_child     ON mistakes(child_id, added_at DESC)
+idx_mistakes_source    ON mistakes(source_assignment_id)
+idx_sub_tags_tag       ON sub_question_tags(tag_id)
+idx_traces_assignment  ON workflow_traces(assignment_id)
+idx_kt_subject         ON knowledge_tags(subject, parent_id)
+idx_children_token     ON children(parent_token)
+```
+
+### 5.5 迁移策略
 
 - V1 直接一份完整 schema（`src/db/migrations/001_init.sql`）
 - 后续变更**只加列/表不改类型**；重大变更用新迁移文件（`002_xxx.sql`）
@@ -368,35 +334,16 @@ export interface ParsedMathQuestion {
 
 ## 8. 微信接入协议（与 OpenClaw 插件契约）
 
-### 8.1 插件 → 本服务
+**契约权威来源：`docs/03-api-spec.md` §2（POST /api/wechat/webhook）与 §6（回推 `OPENCLAW_PUSHBACK_URL`）。** 本文不再重复字段定义，以防两处漂移。
 
-```
-POST /api/wechat/webhook
-Headers: X-OpenClaw-Secret: <shared-secret>
-Body (JSON):
-{
-  "openId": "o_xxx",
-  "messageType": "image" | "text",
-  "imageBuffer": "<base64>",       // 仅 image
-  "text": "...",                    // 仅 text
-  "timestamp": 1713654321
-}
-```
-
-响应：立即 `{ ok: true, assignmentId: "..." }`，批改异步进行。
-
-### 8.2 本服务 → 插件（回推短链）
-
-```
-POST ${OPENCLAW_PUSHBACK_URL}
-Headers: X-Service-Secret: <shared-secret>
-Body:
-{
-  "openId": "o_xxx",
-  "messageType": "text",
-  "text": "批改完成，查看结果：http://192.168.1.100:3100/r/abc123"
-}
-```
+要点：
+- 入站与回推都使用 `X-OpenClaw-Secret`（共享密钥）；两侧相同环境变量 `OPENCLAW_WEBHOOK_SECRET`
+- 入站图片以 **base64** 承载，时间戳**毫秒**
+- 回推文本消息附**签名短链**：`/r/:shortId?t=<parent_token>&e=<expSec>&s=<signature>`，三件套**必须同时存在**，任一缺失即拒绝
+  - `e`：签发时间 + `SHORT_LINK_TTL_MINUTES`（默认 15 分钟）后的 Unix 秒
+  - `s`：`HMAC_SHA256(secret, shortId + '.' + parent_token + '.' + expSec)` 前 16 hex
+  - 过期窗口内 cookie 一旦下发就走 30 天；过期后必须重新从微信进入
+- 回推只承担"通知 + 链接"职能，不回传结果 JSON
 
 ## 9. 渲染与部署
 
@@ -422,19 +369,26 @@ Body:
   - 方案 B：直接 `nssm` 装成 Windows 服务
 - V1 推荐方案 A，后期视稳定性换 B
 
-## 10. 成本/延迟预算（20 题数学试卷）
+## 10. 延迟预算（20 题数学试卷）
 
-| 阶段 | 耗时 | 成本（人民币） |
-|---|---|---|
-| 预处理 | 1-2s | 0 |
-| 版面切题（Claude Vision） | 3-5s | ¥0.05-0.10 |
-| 整题理解（Claude Vision，20 题并发） | 8-12s | ¥0.20-0.30 |
-| 自解（Codex，20 题并发） | 6-10s | ¥0.15-0.25 |
-| SymPy 验证 | <1s | 0 |
-| 学生答案抽取（Claude Vision，机会性） | 4-6s | ¥0.08-0.12 |
-| 讲解生成（Claude，20 题） | 5-8s | ¥0.10-0.15 |
-| 知识点打标 + 持久化 + 渲染 | 2s | 0 |
-| **P50 合计** | **~30-40s** | **≈¥0.6-0.9** |
+订阅模式下无按次计费，只跟踪延迟；订阅月费在产品文档层面核算。
+
+| 阶段 | 耗时 |
+|---|---|
+| 预处理（Sharp） | 1-2s |
+| 版面切题（Claude CLI · Vision） | 3-6s |
+| 整题理解（Claude CLI · Vision，大题级并发） | 10-15s |
+| 自解（Codex CLI，小题并发） | 8-14s |
+| SymPy 验证 | <1s |
+| 学生答案抽取（Claude CLI · Vision，机会性） | 4-8s |
+| 讲解生成（Claude CLI，20 题） | 6-10s |
+| 知识点打标 + 持久化 + 渲染 | 2s |
+| **P50 合计** | **~35-45s** |
+
+说明：
+- CLI 子进程冷启动比 API 多 1-3s，因此整体放宽到 45s
+- 产品侧可接受 P50 ≤ 45s / P90 ≤ 60s（与 `docs/01-product-design.md` §验收对齐）
+- 如进程池预热到位、prompt 缓存命中稳定，实际可回落到 30s 量级
 
 ## 11. 可观测性
 
@@ -442,28 +396,44 @@ Body:
 - Trace：每个节点执行写入 `workflow_traces` 表
 - Debug 页面：`/debug/assignment/:id`（内网限制访问）查看工作流 trace
 - 指标统计（简单）：
-  - 每日作业数 / 成功率 / 平均耗时 / 平均成本
+  - 每日作业数 / 成功率 / 平均耗时 / 失败率（**不记录成本**，订阅模式按月固定）
   - 通过 `/debug/stats` 页查看
 
 ## 12. 安全
 
 - `/api/wechat/webhook` 需 `X-OpenClaw-Secret` 校验
 - 外部访问只暴露**局域网**，不开公网端口
+- **家长鉴权闭环**（V1）：
+  - 每个 `children` 行首次创建时生成 `parent_token`（nanoid 24+，`pt_` 前缀）
+  - 回推到微信的短链 `/r/:shortId?t=<parent_token>&e=<expSec>&s=<signature>` 承载凭据
+    - 三参数**必须同时存在**，签名覆盖 `(shortId, parent_token, expSec)` 三项
+    - 默认窗口 `SHORT_LINK_TTL_MINUTES=15`；过窗链接一律拒绝
+  - 首次访问通过后写入 httpOnly cookie `hw_parent=<parent_token>`，`Max-Age` 由 `PARENT_COOKIE_MAX_AGE_DAYS`（默认 30 天）控制
+  - `/mistakes`、`/api/assignment/**`、`/api/mistakes/**` 一律从 cookie 解析 `parent_token` → 反查 `children.id` → 仅允许访问该 child 自己的数据
+  - 无 cookie / cookie 失效 / 短链过期 / 签名错 → 302 到 `/auth-required?reason=<...>` 提示页
+
+- **短链威胁模型**（显式声明，不假装它比实际更强）：
+  - `parent_token` 是 bearer 凭据：15 分钟窗口内持有链接的任何人都能通过
+  - `hw_parent` cookie 也是 bearer：下发后 30 天内本机浏览器任何用户可访问
+  - HMAC 只防篡改与枚举，**不防转发、不防截屏、不防重放**
+  - V1 靠"仅内网暴露 + 15 分钟窗口"收敛风险；V1.1 计划改为一次性 code → cookie，消除长期 bearer
 - 管理路由（`/debug/*`）加简单 basic auth（环境变量 `ADMIN_USER` / `ADMIN_PASS`）
 - SQL 注入防护：全部使用 `better-sqlite3` prepared statements
 - 上传图片校验 mime + 大小（≤ 20MB）
+- **日志脱敏**：`parent_token`、webhook secret 不得落入日志；Pino 配置 redact 列表
 
 ## 13. 测试策略
 
-- **单元**：Provider Adapter、DAG Runner、SQL 层 → Vitest + mock
-- **集成**：单节点工作流固定夹具测试 → 真实 API 调用（使用小流量配额）
-- **E2E**：选 5-10 张标准数学作业图作为回归集，每次发版手动跑
+- **单元**：Provider Adapter、DAG Runner、SQL 层、auth 签名/校验 → Vitest + mock
+- **集成**：单节点工作流固定夹具测试 → 真实 CLI 调用（订阅模式无流量配额，但建议限频避免触发登录态速率）
+- **鉴权回归**：A/B 两个 `parent_token` 互访应一律 403/404（单测 + E2E 各一份）
+- **E2E**：选 5-10 张标准数学作业图作为回归集，覆盖「非目标题型正确降级为 unmarked」用例，每次发版手动跑
 
 ## 14. 版本路线图
 
 | 版本 | 范围 |
 |---|---|
-| V1.0 | 数学 + 在线 API + Win 本机 + 错题本（知识点+日期）|
+| V1.0 | 数学 + 订阅模式 CLI（Claude+Codex）+ Win 本机 + 错题本（知识点+日期）|
 | V1.1 | 家长反馈回流 few-shot；错题本"已掌握"管理 |
 | V2.0 | 教材章节上传注入上下文；英语接入；Docker 打包 |
 | V2.1 | 本地 VLM（学生答案抽取）；练习包生成 |

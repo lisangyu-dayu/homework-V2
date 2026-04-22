@@ -34,3 +34,18 @@ export class NotFoundError extends AppError {
     super('NOT_FOUND', `${resource} not found`);
   }
 }
+
+export type AuthFailReason =
+  | 'missing-cookie'
+  | 'invalid-cookie'
+  | 'bad-signature'
+  | 'expired-link'
+  | 'unknown-token'
+  | 'forbidden';
+
+export class AuthError extends AppError {
+  constructor(public readonly reason: AuthFailReason) {
+    const code = reason === 'forbidden' ? 'AUTH_FORBIDDEN' : 'AUTH_REQUIRED';
+    super(code, `auth failed: ${reason}`);
+  }
+}

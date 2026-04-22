@@ -1,4 +1,7 @@
 // workflow_traces DAO（M4 完成实现）
+//
+// 订阅模式下不记录 token / cost：CLI 不暴露这些值，按次量化也无意义。
+// trace 仅保留 duration、status、model、error 四项足以定位故障。
 import { nanoid } from 'nanoid';
 import { getDb } from '../client';
 
@@ -10,10 +13,7 @@ export interface TraceInput {
   input?: unknown;
   output?: unknown;
   errorMsg?: string;
-  modelUsed?: string;
-  tokensIn?: number;
-  tokensOut?: number;
-  costCents?: number;
+  modelUsed?: string;     // "claude:sonnet" | "codex:gpt-5.4" | "local"
 }
 
 export function insertTrace(input: TraceInput): void {
@@ -21,8 +21,8 @@ export function insertTrace(input: TraceInput): void {
   db.prepare(`
     INSERT INTO workflow_traces
       (id, assignment_id, node_name, status, duration_ms, input_json, output_json,
-       error_msg, model_used, tokens_in, tokens_out, cost_cents, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       error_msg, model_used, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     `tr_${nanoid(10)}`,
     input.assignmentId,
@@ -33,9 +33,6 @@ export function insertTrace(input: TraceInput): void {
     input.output ? JSON.stringify(input.output) : null,
     input.errorMsg ?? null,
     input.modelUsed ?? null,
-    input.tokensIn ?? null,
-    input.tokensOut ?? null,
-    input.costCents ?? null,
     Date.now(),
   );
 }

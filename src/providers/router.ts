@@ -1,6 +1,6 @@
 import { loadConfig } from '@/lib/config';
-import { ClaudeProvider } from './claude';
-import { CodexProvider } from './codex';
+import { ClaudeCliProvider } from './claude';
+import { CodexCliProvider } from './codex';
 import type { LLMProvider, ProviderName, TaskKind } from './types';
 
 const taskPreference: Record<TaskKind, ProviderName[]> = {
@@ -19,10 +19,16 @@ function getSingletons() {
   if (singletons) return singletons;
   const cfg = loadConfig();
   singletons = {
-    claude: new ClaudeProvider(cfg.anthropicApiKey, cfg.anthropicModel),
-    codex: new CodexProvider({
+    claude: new ClaudeCliProvider({
+      cliPath: cfg.claudeCliPath,
+      defaultModel: cfg.claudeDefaultModel,
+      poolSize: cfg.claudePoolSize,
+      timeoutMs: cfg.claudeTimeoutMs,
+    }),
+    codex: new CodexCliProvider({
       cliPath: cfg.codexCliPath,
       defaultModel: cfg.codexDefaultModel,
+      poolSize: cfg.codexPoolSize,
       timeoutMs: cfg.codexTimeoutMs,
     }),
   };

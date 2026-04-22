@@ -15,7 +15,6 @@ export interface AssignmentRow {
   correctCount: number | null;
   wrongCount: number | null;
   unmarkedCount: number | null;
-  costCents: number | null;
 }
 
 export function createAssignment(input: {
@@ -44,7 +43,7 @@ export function getById(_id: string): AssignmentRow | null {
 }
 
 export function completeAssignment(_id: string, _stats: {
-  correct: number; wrong: number; unmarked: number; total: number; costCents: number;
+  correct: number; wrong: number; unmarked: number; total: number;
 }): void {
   // TODO[M1]
 }

@@ -12,10 +12,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:init": "tsx scripts/init-db.ts",
-    "db:seed-kp": "tsx scripts/seed-knowledge-points.ts"
+    "db:seed-kp": "tsx scripts/seed-knowledge-points.ts",
+    "check:cli": "tsx scripts/check-cli.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.40.0",
     "better-sqlite3": "^11.3.0",
     "nanoid": "^5.0.7",
     "next": "^15.0.0",
