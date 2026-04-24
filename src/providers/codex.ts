@@ -10,6 +10,7 @@ import {
   CliProviderBase,
   type CliExecutor,
   type CliProviderCoreOptions,
+  withTempImages,
 } from './cli';
 import { UpstreamError } from '@/lib/errors';
 
@@ -38,7 +39,7 @@ export class CodexCliProvider extends CliProviderBase implements LLMProvider {
 
   readonly supportsPromptCache = false;
 
-  readonly supportsVision = false;
+  readonly supportsVision = true;
 
   constructor(options: CodexCliOptions) {
     super(options);
@@ -64,8 +65,21 @@ export class CodexCliProvider extends CliProviderBase implements LLMProvider {
     }
   }
 
-  async vision(_req: VisionRequest): Promise<VisionResponse> {
-    throw new UpstreamError('codex', 'vision-not-supported');
+  async vision(req: VisionRequest): Promise<VisionResponse> {
+    try {
+      return await withTempImages(req.images, async (imagePaths) => {
+        const response = await this.runCommand({
+          args: [
+            ...this.buildArgs(req.model),
+            ...imagePaths.flatMap((imagePath) => ['--image', imagePath]),
+          ],
+          stdin: buildPrompt(req),
+        });
+        return withRequestedModel(response, req.model);
+      });
+    } catch (error) {
+      throw toUpstreamError(error);
+    }
   }
 
   private buildArgs(model?: string): string[] {

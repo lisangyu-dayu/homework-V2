@@ -55,9 +55,12 @@ async function runPython(
   return new Promise<string>((resolve, reject) => {
     const child = spawn(command, [...args, RUNNER_PATH], {
       stdio: 'pipe',
-      shell: process.platform === 'win32',
+      shell: false,
       windowsHide: true,
-      env: process.env,
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: 'utf-8',
+      },
     });
 
     let stdout = '';

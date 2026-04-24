@@ -60,6 +60,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 afterAll(async () => {
@@ -125,6 +126,13 @@ describe('wechat webhook route', () => {
   });
 
   it('runs the assignment workflow and pushes back a result link', async () => {
+    vi.stubEnv('CODEX_CLI_PATH', '__missing_codex_for_test__');
+    vi.stubEnv('CLAUDE_CLI_PATH', '__missing_claude_for_test__');
+    const { resetConfigCacheForTest } = await import('@/lib/config');
+    const { resetProviderSingletonsForTest } = await import('@/providers/router');
+    resetConfigCacheForTest();
+    resetProviderSingletonsForTest();
+
     const { POST } = await import('@app/api/wechat/webhook/route');
     const req = jsonRequest('http://localhost/api/wechat/webhook', {
       method: 'POST',

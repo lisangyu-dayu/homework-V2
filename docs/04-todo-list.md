@@ -11,7 +11,8 @@
 - [x] 鉴权闭环骨架（auth.ts + middleware + /r 短链接受 + /auth-required）← *本次已完成*
 - [x] 安装依赖（`npm install`），跑通本地校验链（`test` / `typecheck` / `lint`）← *本次已完成*
 - [ ] `.env.example` → `.env`，生成 `PARENT_LINK_SIGNING_SECRET`（≥ 32 字节随机串）
-- [ ] 本机 `claude login` + `codex login`；运行 `npm run check:cli` 通过
+- [x] 本机 `codex login`；运行 `npm run check:cli` 通过 ← *本次已验证：Codex CLI 0.124.0，OAuth 登录态存在*
+- [ ] 可选 Claude 兜底：本机 `claude login`；运行 `REQUIRE_CLAUDE_CLI=true npm run check:cli` 通过 ← *当前 Claude CLI 已安装但未登录*
 
 ## Milestone M1 · 数据层（1-2 天）· P0
 
@@ -42,7 +43,7 @@
   - [x] `chat` 最小可运行实现 ← *本次已完成*
   - [x] stdin/stdout JSON 解析、超时、错误码映射 ← *本次已完成*
   - [x] Router 对 `vision-not-supported` 自动降级 ← *本次已完成*
-  - [ ] **先实测 Codex CLI 视觉支持**（阻塞点）；不支持则 Router 不派发 vision
+  - [x] **先实测 Codex CLI 视觉支持**（阻塞点）；不支持则 Router 不派发 vision ← *本次已完成：Codex CLI 支持 `exec --image`，Router 已切换为 Codex 优先*
   - [ ] 真正常驻热进程池
 - [x] `src/providers/router.ts`：按 task + 环境变量覆盖选择（已有骨架）← *本次已完成*
 - [x] 集成测试：补 provider 单测覆盖关键路径 ← *本次已完成；真实 CLI 联调仍待本机登录环境*
@@ -85,9 +86,9 @@
 
 - [x] `scripts/sympy_runner.py`：JSON stdin → JSON stdout 子进程
   - [x] 接口：`solve` / `simplify` / `equivalent` ← *本次已完成*
-  - [ ] 支持中文 → LaTeX 归一化
+  - [x] 支持中文 → LaTeX 归一化 ← *本次已完成：支持全角/中文符号、常见中文答案前缀、平方/根号、LaTeX 分式/根号归一化*
 - [x] `src/mcp/sympy.ts`：TS 侧包装子进程 ← *本次已完成*
-- [ ] 样例集：10 道典型数学题的等价判定用例
+- [x] 样例集：10 道典型数学题的等价判定用例 ← *本次已完成：补充 12 个正例与 3 个反例，覆盖分式、方程答案、全角符号、中文根号/平方与 LaTeX*
 
 ## Milestone M7 · 微信入口 + 鉴权（1-2 天）· P0
 
@@ -134,8 +135,8 @@
 - [ ] E2E 手动跑：验收指标对齐（01-产品方案 §10）
   - P50 ≤ 45s / P90 ≤ 60s
   - 非目标题型 0 误判（不应出现 ✓/✗）
-- [ ] 鉴权回归：从 A 家长 cookie 请求 B 家长的 shortId / mistakeId → 均应 403/404
-- [ ] PM2 开机自启 / nssm Windows 服务任选其一
+- [x] 鉴权回归：从 A 家长 cookie 请求 B 家长的 shortId / mistakeId → 均应 403/404 ← *本次已完成：补 M10 auth-regression 单测覆盖结果页 shortId 与错题 API mistakeId 越权均 404*
+- [x] PM2/systemd/supervisor 开机自启任选其一 ← *本次已完成：补 `ecosystem.config.cjs` 与 npm PM2 脚本；实际开机自启按 WSL 机器执行 `pm2 startup`*
 - [ ] 内网访问验证：局域网 IP + 端口
 
 ## P1 · V1 上线后迭代（~1 周）

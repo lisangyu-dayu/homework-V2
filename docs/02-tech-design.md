@@ -15,7 +15,7 @@
           │ POST /pushback               │ POST /api/wechat/webhook
           │                              │
 ┌─────────┴──────────────────────────────▼────────────────┐
-│  homework-V2 服务（Next.js + TS，Win 本机常开）          │
+│  homework-V2 服务（Next.js + TS，WSL/Ubuntu 本机常开）  │
 │                                                          │
 │  ┌───────────────────────────────────────────────────┐  │
 │  │ App Router（Next.js）                              │  │
@@ -71,13 +71,13 @@
 | # | 节点 | 位置 | 输入 | 输出 | 模型/工具 |
 |---|---|---|---|---|---|
 | 1 | `preprocess` | `src/workflow/nodes/preprocess.ts` | 原图 buffer | 矫正/增强图 + 元数据 | Sharp（本地 CPU） |
-| 2 | `layoutSplit` | 同上 | 整页图 | 大题树（含 bbox） | Claude CLI · vision（V1 全走 VLM）|
-| 3 | `parseQuestion` | 同上 | 单小题图 | 结构化 JSON（题面+图表+条件）| Claude CLI |
+| 2 | `layoutSplit` | 同上 | 整页图 | 大题树（含 bbox） | Codex CLI · vision 首选，Claude CLI 兜底 |
+| 3 | `parseQuestion` | 同上 | 单小题图 | 结构化 JSON（题面+图表+条件）| Codex CLI · vision 首选，Claude CLI 兜底 |
 | 4 | `selfSolve` | 同上 | 题面 JSON | 解题步骤 + 最终答案 + 置信度 | Codex CLI 首选，Claude CLI 兜底 |
 | 5 | `verify` | 同上 | 题面 + 自解答案 | 一致/不一致 + 补充解 | SymPy MCP |
-| 6 | `extractStudentAnswer` | 同上 | 单题图 | 学生答案（可能为 null）| Claude CLI · vision（机会性）|
+| 6 | `extractStudentAnswer` | 同上 | 单题图 | 学生答案（可能为 null）| Codex CLI · vision 首选，Claude CLI 兜底 |
 | 7 | `grade` | 同上 | 标准答案 + 学生答案 | ✓/✗/—（二态+跳过）| 代码规则 |
-| 8 | `generateExplanation` | 同上 | 题面 + 解 + 判定 | 讲解文本（Markdown/LaTeX）| Claude CLI |
+| 8 | `generateExplanation` | 同上 | 题面 + 解 + 判定 | 讲解文本（Markdown/LaTeX）| Codex CLI 首选，Claude CLI 兜底 |
 | 9 | `kpTagging` | 同上 | 题面 | 知识点 tag[] | KnowledgePoints MCP + LLM |
 | 10 | `persist` | 同上 | 所有字段 | assignmentId | SQLite |
 | 11 | `render` | 同上 | assignmentId | shortId + URL | 本地生成 |
@@ -141,8 +141,8 @@ V1 两侧都走**本机已登录的 CLI 子进程**，不使用 API Key。
 - 启动前由 `scripts/check-cli.ts` 探测 `claude --version` 与 `codex --version`；未安装/未登录则拒绝启动
 
 凭据来源（只读复用）：
-- Claude：`~/.claude/` 下的登录态（由 `claude login` 写入）
 - Codex：`~/.codex/auth.json`（由 `codex login` 写入，或 `CODEX_HOME` 覆盖）
+- Claude：`~/.claude/` 下的登录态（由 `claude login` 写入；仅作为可选兜底时必需）
 
 ### 4.3 Claude 实现（CLI 子进程）
 
@@ -175,7 +175,7 @@ V1 两侧都走**本机已登录的 CLI 子进程**，不使用 API Key。
 - **健康检查**：启动时 `codex --version` 探测
 - **超时控制**：`CODEX_TIMEOUT_MS`，超时 SIGKILL + 重启进程
 - **错误码映射**：CLI 非零退出 → `UpstreamError`（包含 stderr 片段）
-- **视觉输入**：V1 Codex CLI 视觉能力需 M3 实测；若不支持 → 视觉任务全部路由到 Claude（Router 层决定）
+- **视觉输入**：已实测 Codex CLI 支持 `exec --image`；V1 视觉任务默认 Codex 优先，Claude 作为可选兜底（Router 层决定）
 
 ### 4.5 Router
 
@@ -358,16 +358,17 @@ export interface ParsedMathQuestion {
 ### 9.2 局域网访问
 
 - 监听 `0.0.0.0:3100`
-- `PUBLIC_BASE_URL` 填 Win 机内网 IP
+- `PUBLIC_BASE_URL` 填宿主机/WSL 可被局域网访问的内网 IP
 - 回推微信的短链使用 `PUBLIC_BASE_URL`
 
-### 9.3 进程管理（Win 本机）
+### 9.3 进程管理（WSL/Ubuntu）
 
 - 开发：`npm run dev`
 - 生产：
-  - 方案 A：`npm run build && npm run start`，用 `pm2-windows-startup` 或任务计划开机启动
-  - 方案 B：直接 `nssm` 装成 Windows 服务
+  - 方案 A：`npm run build && npm run start`，用 PM2 管理进程
+  - 方案 B：用 systemd user service 或 supervisor 托管
 - V1 推荐方案 A，后期视稳定性换 B
+- PM2 配置：根目录 `ecosystem.config.cjs`，应用名 `homework-v2`，监听 `0.0.0.0:3100`
 
 ## 10. 延迟预算（20 题数学试卷）
 
@@ -376,12 +377,12 @@ export interface ParsedMathQuestion {
 | 阶段 | 耗时 |
 |---|---|
 | 预处理（Sharp） | 1-2s |
-| 版面切题（Claude CLI · Vision） | 3-6s |
-| 整题理解（Claude CLI · Vision，大题级并发） | 10-15s |
+| 版面切题（Codex CLI · Vision，Claude 可兜底） | 3-6s |
+| 整题理解（Codex CLI · Vision，大题级并发，Claude 可兜底） | 10-15s |
 | 自解（Codex CLI，小题并发） | 8-14s |
 | SymPy 验证 | <1s |
-| 学生答案抽取（Claude CLI · Vision，机会性） | 4-8s |
-| 讲解生成（Claude CLI，20 题） | 6-10s |
+| 学生答案抽取（Codex CLI · Vision，机会性，Claude 可兜底） | 4-8s |
+| 讲解生成（Codex CLI，20 题，Claude 可兜底） | 6-10s |
 | 知识点打标 + 持久化 + 渲染 | 2s |
 | **P50 合计** | **~35-45s** |
 
@@ -433,7 +434,7 @@ export interface ParsedMathQuestion {
 
 | 版本 | 范围 |
 |---|---|
-| V1.0 | 数学 + 订阅模式 CLI（Claude+Codex）+ Win 本机 + 错题本（知识点+日期）|
+| V1.0 | 数学 + 订阅模式 CLI（Claude+Codex）+ WSL 本机 + 错题本（知识点+日期）|
 | V1.1 | 家长反馈回流 few-shot；错题本"已掌握"管理 |
 | V2.0 | 教材章节上传注入上下文；英语接入；Docker 打包 |
 | V2.1 | 本地 VLM（学生答案抽取）；练习包生成 |

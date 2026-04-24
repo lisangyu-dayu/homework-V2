@@ -6,7 +6,7 @@
 - **TypeScript**：≥ 5.6，strict、`noUncheckedIndexedAccess` 开启
 - **Next.js**：15.x，App Router（不写 Pages Router）
 - **DB**：SQLite via `better-sqlite3`（同步 API、性能好）
-- **运行时**：Windows 10/11，4090
+- **运行时**：WSL/Ubuntu（宿主机 4090）
 - **Python**：3.10+（用于 SymPy 子进程）
 
 ## 2. 代码组织

@@ -16,9 +16,9 @@ db.pragma('foreign_keys = ON');
 const files = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
 for (const f of files) {
   const sql = fs.readFileSync(path.join(migrationsDir, f), 'utf-8');
-  console.log(`applying ${f}...`);
+  process.stdout.write(`applying ${f}...\n`);
   db.exec(sql);
 }
 
-console.log(`DB ready at ${sqlitePath}`);
+process.stdout.write(`DB ready at ${sqlitePath}\n`);
 db.close();

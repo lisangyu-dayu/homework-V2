@@ -9,7 +9,7 @@ const compat = new FlatCompat({
   baseDirectory: __dirname,
 });
 
-export default [
+const eslintConfig = [
   {
     ignores: ['node_modules', '.next', 'dist', 'data'],
   },
@@ -20,3 +20,5 @@ export default [
     },
   },
 ];
+
+export default eslintConfig;

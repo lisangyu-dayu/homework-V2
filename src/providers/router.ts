@@ -4,13 +4,13 @@ import { CodexCliProvider } from './codex';
 import type { LLMProvider, ProviderName, TaskKind } from './types';
 
 const taskPreference: Record<TaskKind, ProviderName[]> = {
-  vision:                ['claude', 'codex'],
-  layoutSplit:           ['claude'],
-  parseQuestion:         ['claude'],
+  vision:                ['codex', 'claude'],
+  layoutSplit:           ['codex', 'claude'],
+  parseQuestion:         ['codex', 'claude'],
   selfSolve:             ['codex', 'claude'],
-  extractStudentAnswer:  ['claude'],
-  generateExplanation:   ['claude', 'codex'],
-  kpTagging:             ['claude'],
+  extractStudentAnswer:  ['codex', 'claude'],
+  generateExplanation:   ['codex', 'claude'],
+  kpTagging:             ['codex', 'claude'],
 };
 
 let singletons: Record<ProviderName, LLMProvider> | null = null;

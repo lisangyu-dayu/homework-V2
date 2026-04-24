@@ -17,14 +17,15 @@
 - SQLite (better-sqlite3)
 - Claude Code CLI + Codex CLI（对称 Provider Adapter · **订阅模式，不用 API Key**）
 - SymPy MCP（数学等价验证）
-- 部署：Windows 本机（4090 常开）
+- 部署：WSL/Ubuntu 本机服务（4090 主机常开）
 
 ## 快速开始
 
 ```bash
-# 1) 本机先登录两侧 CLI（订阅模式的必要步骤）
-claude login
+# 1) 本机先登录 Codex CLI（订阅模式的必要步骤）
 codex login
+# 可选：启用 Claude 兜底前再登录
+claude login
 
 # 2) 配置
 cp .env.example .env
@@ -32,12 +33,24 @@ cp .env.example .env
 
 # 3) 启动
 npm install
-npm run check:cli      # 验证两侧 CLI 可用
+npm run check:cli      # 验证 Codex CLI 可用
+# 可选：同时验证 Claude 兜底登录态
+REQUIRE_CLAUDE_CLI=true npm run check:cli
 npm run db:init
 npm run db:seed-kp
 npm run dev
 # 访问 http://localhost:3100
 ```
+
+## WSL 生产运行
+
+```bash
+npm run build
+npm run pm2:start
+pm2 save
+```
+
+服务监听 `0.0.0.0:3100`。需要开机自启时，在 WSL 内按 PM2 输出执行 `pm2 startup` 对应命令。
 
 ## 文档
 
