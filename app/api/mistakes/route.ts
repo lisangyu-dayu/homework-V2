@@ -1,67 +1,109 @@
-// GET /api/mistakes · 错题本列表（M8 实现）
-// POST /api/mistakes · 加入错题本（M8 实现）
-//
-// childId 由 cookie 推导，不接受 query/body 传入。
-// middleware.ts 已拦截无 cookie 请求；本处再做 token → child 解析。
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { addMistake } from '@/db/dao/mistakes';
+import { getSubQuestionSnapshotForChild, listMistakesForChild } from '@/db/dao/homeworkData';
 import { requireChildFromRequest } from '@/lib/auth';
 import { AuthError } from '@/lib/errors';
-
-export async function GET(req: NextRequest) {
-  let child;
-  try {
-    child = requireChildFromRequest(req);
-  } catch (e) {
-    if (e instanceof AuthError) {
-      return NextResponse.json({ ok: false, error: { code: e.code, message: e.message } }, { status: 401 });
-    }
-    throw e;
-  }
-
-  const { searchParams } = new URL(req.url);
-  // TODO[M8]: 解析 tags / from / to / resolved / limit / cursor
-  // TODO[M8]: 调用 mistakes DAO（作用域 child.id）
-  void child;
-  void searchParams;
-
-  return NextResponse.json({
-    ok: true,
-    items: [],
-    nextCursor: null,
-    summary: { total: 0, byTag: [] },
-  });
-}
+import { authErrorResponse, errorResponse } from '@app/api/_lib/responses';
 
 const AddMistakeSchema = z.object({
   subQuestionId: z.string().min(1),
   source: z.enum(['auto', 'manual']).default('manual'),
 });
 
+function parseOptionalInteger(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseCursor(value: string | null): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+export async function GET(req: NextRequest) {
+  let child;
+  try {
+    child = requireChildFromRequest(req);
+  } catch (e) {
+    if (e instanceof AuthError) return authErrorResponse(e);
+    throw e;
+  }
+
+  const { searchParams } = new URL(req.url);
+  const limit = parseOptionalInteger(searchParams.get('limit')) ?? 50;
+  const from = parseOptionalInteger(searchParams.get('from'));
+  const to = parseOptionalInteger(searchParams.get('to'));
+  const cursor = parseCursor(searchParams.get('cursor'));
+  const resolvedRaw = searchParams.get('resolved');
+  const resolved =
+    resolvedRaw === '0' ? false : resolvedRaw === '1' ? true : undefined;
+  const tags = (searchParams.get('tags') ?? '')
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+
+  if (limit <= 0 || limit > 100) {
+    return errorResponse(400, 'INVALID_INPUT', 'limit must be between 1 and 100');
+  }
+  if (searchParams.get('from') && typeof from !== 'number') {
+    return errorResponse(400, 'INVALID_INPUT', 'from must be an integer timestamp');
+  }
+  if (searchParams.get('to') && typeof to !== 'number') {
+    return errorResponse(400, 'INVALID_INPUT', 'to must be an integer timestamp');
+  }
+  if (searchParams.get('cursor') && !cursor) {
+    return errorResponse(400, 'INVALID_INPUT', 'cursor must be a non-empty string');
+  }
+  if (resolvedRaw && !['0', '1'].includes(resolvedRaw)) {
+    return errorResponse(400, 'INVALID_INPUT', 'resolved must be 0 or 1');
+  }
+
+  const result = listMistakesForChild({
+    childId: child.id,
+    tagIds: tags,
+    from,
+    to,
+    resolved,
+    limit,
+    cursor,
+  });
+
+  return NextResponse.json({
+    ok: true,
+    items: result.items,
+    nextCursor: result.nextCursor,
+    summary: result.summary,
+  });
+}
+
 export async function POST(req: NextRequest) {
   let child;
   try {
     child = requireChildFromRequest(req);
   } catch (e) {
-    if (e instanceof AuthError) {
-      return NextResponse.json({ ok: false, error: { code: e.code, message: e.message } }, { status: 401 });
-    }
+    if (e instanceof AuthError) return authErrorResponse(e);
     throw e;
   }
 
   const body = await req.json().catch(() => ({}));
   const parsed = AddMistakeSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { ok: false, error: { code: 'INVALID_INPUT', message: 'bad payload' } },
-      { status: 400 },
-    );
+    return errorResponse(400, 'INVALID_INPUT', 'bad payload');
   }
 
-  // TODO[M8]:
-  //   1) 从 sub_questions 读 subQuestionId，校验其 assignment.child_id === child.id
-  //   2) 调 addMistake(...) 写快照 + 复制图
-  void child;
+  const subQuestion = getSubQuestionSnapshotForChild(parsed.data.subQuestionId, child.id);
+  if (!subQuestion) {
+    return errorResponse(404, 'NOT_FOUND', 'sub question not found');
+  }
 
-  return NextResponse.json({ ok: true, mistakeId: 'TODO' });
+  const { mistakeId } = await addMistake({
+    childId: child.id,
+    subQuestion,
+    source: parsed.data.source,
+  });
+
+  return NextResponse.json({ ok: true, mistakeId });
 }

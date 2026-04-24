@@ -37,9 +37,13 @@ function mapRow(r: ChildDbRow): ChildRow {
   };
 }
 
-export function findByOpenId(openid: string): ChildRow | null {
+function selectByOpenId(openid: string): ChildDbRow | undefined {
   const db = getDb();
-  const row = db.prepare('SELECT * FROM children WHERE openid = ?').get(openid) as ChildDbRow | undefined;
+  return db.prepare('SELECT * FROM children WHERE openid = ?').get(openid) as ChildDbRow | undefined;
+}
+
+export function findByOpenId(openid: string): ChildRow | null {
+  const row = selectByOpenId(openid);
   return row ? mapRow(row) : null;
 }
 
@@ -56,20 +60,18 @@ export function findById(id: string): ChildRow | null {
 }
 
 export function findOrCreateByOpenId(openid: string, grade?: number): ChildRow {
-  const existing = findByOpenId(openid);
-  if (existing) return existing;
-
   const db = getDb();
   const id = `ch_${nanoid(10)}`;
   const parentToken = `pt_${nanoid(24)}`;
   const now = Date.now();
   db.prepare(
-    'INSERT INTO children (id, openid, parent_token, grade, created_at) VALUES (?, ?, ?, ?, ?)',
+    'INSERT OR IGNORE INTO children (id, openid, parent_token, grade, created_at) VALUES (?, ?, ?, ?, ?)',
   ).run(id, openid, parentToken, grade ?? null, now);
-  return {
-    id, openid, parentToken,
-    nickname: null,
-    grade: grade ?? null,
-    createdAt: now,
-  };
+
+  const row = selectByOpenId(openid);
+  if (!row) {
+    throw new Error(`failed to create or load child for openid: ${openid}`);
+  }
+
+  return mapRow(row);
 }

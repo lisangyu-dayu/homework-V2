@@ -35,9 +35,11 @@ export function middleware(req: NextRequest) {
       { status: 401 },
     );
   }
+
   const redirect = req.nextUrl.clone();
   redirect.pathname = '/auth-required';
   redirect.search = '';
+  redirect.searchParams.set('reason', 'missing-cookie');
   return NextResponse.redirect(redirect);
 }
 

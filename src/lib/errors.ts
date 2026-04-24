@@ -1,5 +1,5 @@
 export class AppError extends Error {
-  constructor(public readonly code: string, message: string, public readonly cause?: unknown) {
+  constructor(public readonly code: string, message: string, public override readonly cause?: unknown) {
     super(message);
     this.name = this.constructor.name;
   }

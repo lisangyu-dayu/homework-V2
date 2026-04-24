@@ -23,6 +23,7 @@ const ConfigSchema = z.object({
 
   // Auth
   parentLinkSigningSecret: z.string().min(16),
+  shortLinkTtlMinutes: z.number().int().min(1).default(15),
   parentCookieName: z.string().default('hw_parent'),
   parentCookieMaxAgeDays: z.number().int().default(30),
   adminUser: z.string().min(1),
@@ -44,6 +45,20 @@ export type AppConfig = z.infer<typeof ConfigSchema>;
 
 let cached: AppConfig | null = null;
 
+export function getParentCookieName(): string {
+  return process.env.PARENT_COOKIE_NAME?.trim() || 'hw_parent';
+}
+
+export function getParentCookieMaxAgeDays(): number {
+  const raw = process.env.PARENT_COOKIE_MAX_AGE_DAYS;
+  const parsed = raw ? Number(raw) : 30;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+}
+
+export function resetConfigCacheForTest(): void {
+  cached = null;
+}
+
 export function loadConfig(): AppConfig {
   if (cached) return cached;
   const raw = {
@@ -60,6 +75,7 @@ export function loadConfig(): AppConfig {
     port: process.env.PORT ? Number(process.env.PORT) : undefined,
     publicBaseUrl: process.env.PUBLIC_BASE_URL,
     parentLinkSigningSecret: process.env.PARENT_LINK_SIGNING_SECRET,
+    shortLinkTtlMinutes: process.env.SHORT_LINK_TTL_MINUTES ? Number(process.env.SHORT_LINK_TTL_MINUTES) : undefined,
     parentCookieName: process.env.PARENT_COOKIE_NAME,
     parentCookieMaxAgeDays: process.env.PARENT_COOKIE_MAX_AGE_DAYS ? Number(process.env.PARENT_COOKIE_MAX_AGE_DAYS) : undefined,
     adminUser: process.env.ADMIN_USER,

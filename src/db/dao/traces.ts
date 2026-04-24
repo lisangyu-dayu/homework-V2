@@ -16,6 +16,13 @@ export interface TraceInput {
   modelUsed?: string;     // "claude:sonnet" | "codex:gpt-5.4" | "local"
 }
 
+export interface TraceRow extends TraceInput {
+  id: string;
+  createdAt: number;
+  input?: unknown;
+  output?: unknown;
+}
+
 export function insertTrace(input: TraceInput): void {
   const db = getDb();
   db.prepare(`
@@ -37,7 +44,37 @@ export function insertTrace(input: TraceInput): void {
   );
 }
 
-export function listByAssignment(_assignmentId: string): unknown[] {
-  // TODO[M4]: SELECT 并映射
-  return [];
+export function listByAssignment(assignmentId: string): TraceRow[] {
+  const db = getDb();
+  const rows = db.prepare(
+    `SELECT id, assignment_id, node_name, status, duration_ms, input_json, output_json,
+            error_msg, model_used, created_at
+     FROM workflow_traces
+     WHERE assignment_id = ?
+     ORDER BY created_at ASC`,
+  ).all(assignmentId) as Array<{
+    id: string;
+    assignment_id: string;
+    node_name: string;
+    status: 'success' | 'failed' | 'skipped';
+    duration_ms: number;
+    input_json: string | null;
+    output_json: string | null;
+    error_msg: string | null;
+    model_used: string | null;
+    created_at: number;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    assignmentId: row.assignment_id,
+    nodeName: row.node_name,
+    status: row.status,
+    durationMs: row.duration_ms,
+    input: row.input_json ? JSON.parse(row.input_json) : undefined,
+    output: row.output_json ? JSON.parse(row.output_json) : undefined,
+    errorMsg: row.error_msg ?? undefined,
+    modelUsed: row.model_used ?? undefined,
+    createdAt: row.created_at,
+  }));
 }

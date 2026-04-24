@@ -40,21 +40,54 @@ export interface PickOptions {
   override?: ProviderName;
 }
 
+function getCandidates(task: TaskKind, override?: ProviderName): ProviderName[] {
+  if (override) {
+    return [override];
+  }
+
+  const envOverride = process.env[`PROVIDER_OVERRIDE_${task.toUpperCase()}`] as ProviderName | undefined;
+  if (envOverride) {
+    return [envOverride];
+  }
+
+  return taskPreference[task] ?? ['claude'];
+}
+
 export function pickProvider(opts: PickOptions): LLMProvider {
   const pool = getSingletons();
-  if (opts.override) return pool[opts.override];
+  const candidates = getCandidates(opts.task, opts.override);
 
-  const envOverride = process.env[`PROVIDER_OVERRIDE_${opts.task.toUpperCase()}`] as ProviderName | undefined;
-  if (envOverride && envOverride in pool) return pool[envOverride];
+  for (const candidate of candidates) {
+    const provider = pool[candidate];
+    if (opts.task !== 'vision' || provider.supportsVision) {
+      return provider;
+    }
+  }
 
-  const candidates = taskPreference[opts.task] ?? ['claude'];
   const primary = candidates[0] ?? 'claude';
   return pool[primary];
 }
 
 export function pickFallback(task: TaskKind, failed: ProviderName): LLMProvider | null {
   const pool = getSingletons();
-  const candidates = taskPreference[task] ?? [];
-  const next = candidates.find((p) => p !== failed);
-  return next ? pool[next] : null;
+  const candidates = getCandidates(task);
+
+  for (const candidate of candidates) {
+    if (candidate === failed) {
+      continue;
+    }
+
+    const provider = pool[candidate];
+    if (task === 'vision' && !provider.supportsVision) {
+      continue;
+    }
+
+    return provider;
+  }
+
+  return null;
+}
+
+export function resetProviderSingletonsForTest(): void {
+  singletons = null;
 }

@@ -15,18 +15,9 @@
 //   - V1.1 计划升级：一次性 code → cookie，避免转发链接永久可用
 import crypto from 'node:crypto';
 import type { NextRequest } from 'next/server';
-import { loadConfig } from './config';
+import { getParentCookieMaxAgeDays, getParentCookieName, loadConfig } from './config';
 import { findByParentToken, type ChildRow } from '@/db/dao/children';
 import { AuthError } from './errors';
-
-const DEFAULT_TTL_MINUTES = 15;
-
-function getTtlMinutes(): number {
-  const raw = process.env.SHORT_LINK_TTL_MINUTES;
-  const n = raw ? Number(raw) : DEFAULT_TTL_MINUTES;
-  if (!Number.isFinite(n) || n <= 0) return DEFAULT_TTL_MINUTES;
-  return n;
-}
 
 // —— 签名短链 ——
 
@@ -66,8 +57,8 @@ export interface ShortLinkParams {
 
 /** 构造回推微信的完整 URL；ttl 默认 15 分钟，可用 SHORT_LINK_TTL_MINUTES 覆盖 */
 export function buildShortLinkUrl(shortId: string, parentToken: string): string {
-  const { publicBaseUrl } = loadConfig();
-  const expSec = Math.floor(Date.now() / 1000) + getTtlMinutes() * 60;
+  const { publicBaseUrl, shortLinkTtlMinutes } = loadConfig();
+  const expSec = Math.floor(Date.now() / 1000) + shortLinkTtlMinutes * 60;
   const sig = signShortLink(shortId, parentToken, expSec);
   const u = new URL(`/r/${encodeURIComponent(shortId)}`, publicBaseUrl);
   u.searchParams.set('t', parentToken);
@@ -79,16 +70,14 @@ export function buildShortLinkUrl(shortId: string, parentToken: string): string 
 // —— Cookie ——
 
 export function cookieAttributesForParent(): string {
-  const { parentCookieMaxAgeDays } = loadConfig();
-  const maxAge = parentCookieMaxAgeDays * 24 * 60 * 60;
+  const maxAge = getParentCookieMaxAgeDays() * 24 * 60 * 60;
   // SameSite=Lax：从微信内建浏览器跳转时 cookie 可正常携带
   // 内网 http，无 Secure
   return `Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
 }
 
 export function parentCookieHeader(parentToken: string): string {
-  const { parentCookieName } = loadConfig();
-  return `${parentCookieName}=${parentToken}; ${cookieAttributesForParent()}`;
+  return `${getParentCookieName()}=${parentToken}; ${cookieAttributesForParent()}`;
 }
 
 // —— 从请求中解析 child ——
@@ -98,8 +87,7 @@ export function parentCookieHeader(parentToken: string): string {
  * 短链本身只在 /r/:shortId 路由使用 acceptShortLink 校验并写 cookie，不作为受保护接口的兜底。
  */
 export function requireChildFromRequest(req: NextRequest): ChildRow {
-  const { parentCookieName } = loadConfig();
-  const cookieToken = req.cookies.get(parentCookieName)?.value;
+  const cookieToken = req.cookies.get(getParentCookieName())?.value;
   if (!cookieToken) throw new AuthError('missing-cookie');
   const child = findByParentToken(cookieToken);
   if (!child) throw new AuthError('invalid-cookie');

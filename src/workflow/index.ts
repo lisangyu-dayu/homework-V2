@@ -26,7 +26,7 @@ export async function runAssignment(ctx: AssignmentCtx): Promise<{ shortId: stri
     .register({ name: 'parseQuestion',        deps: ['layoutSplit'],          handler: parseQuestion.run })
     .register({ name: 'selfSolve',            deps: ['parseQuestion'],        handler: selfSolve.run })
     .register({ name: 'verify',               deps: ['selfSolve'],            handler: verify.run })
-    .register({ name: 'extractStudentAnswer', deps: ['layoutSplit'],          handler: extractStudentAnswer.run })
+    .register({ name: 'extractStudentAnswer', deps: ['parseQuestion'],        handler: extractStudentAnswer.run })
     .register({ name: 'grade',                deps: ['verify', 'extractStudentAnswer'], handler: grade.run })
     .register({ name: 'generateExplanation',  deps: ['grade'],                handler: generateExplanation.run })
     .register({ name: 'kpTagging',            deps: ['parseQuestion'],        handler: kpTagging.run })

@@ -50,8 +50,9 @@ Response 202:
 
 **副作用**：
 1. 创建 `assignments` 行，`status=processing`
-2. 异步触发 `AssignmentWorkflow`
-3. 工作流完成后调用 OpenClaw 推回短链
+2. 立即通过 OpenClaw 回一条"正在批改中"提示
+3. 异步触发 `AssignmentWorkflow`
+4. 工作流完成后调用 OpenClaw 推回短链
 
 ### 1.2 回推（本服务 → OpenClaw 插件）
 

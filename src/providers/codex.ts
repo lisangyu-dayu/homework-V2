@@ -1,45 +1,79 @@
-// Codex Provider · Codex CLI 子进程（订阅模式）
-//
-// 与 Claude CLI 对称设计：同样的进程池 + stream JSON 协议。
-// 订阅凭据落在 ~/.codex/auth.json（或 CODEX_HOME 覆盖），本服务只读复用登录态。
-//
-// 延迟优化：
-//   - 进程池（CODEX_POOL_SIZE 常驻）
-//   - 单进程串行，池级并发
-//
-// 视觉能力：Codex CLI 当前视觉支持需 M3 期间实测确认；
-//   若不支持，Router 层自动降级到 Claude。
 import type {
-  ChatRequest, ChatResponse, LLMProvider, VisionRequest, VisionResponse,
+  ChatRequest,
+  ChatResponse,
+  LLMProvider,
+  VisionRequest,
+  VisionResponse,
 } from './types';
+import {
+  buildPrompt,
+  CliProviderBase,
+  type CliExecutor,
+  type CliProviderCoreOptions,
+} from './cli';
 import { UpstreamError } from '@/lib/errors';
 
-export interface CodexCliOptions {
-  cliPath: string;
-  defaultModel: string;
-  poolSize: number;
-  timeoutMs: number;
+export interface CodexCliOptions extends CliProviderCoreOptions {
+  executor?: CliExecutor;
 }
 
-export class CodexCliProvider implements LLMProvider {
-  readonly name = 'codex' as const;
-  readonly supportsPromptCache = false;          // 订阅模式下 CLI 缓存行为未公开
-  readonly supportsVision = false;               // 待 M3 实测确认
+function withRequestedModel(response: ChatResponse, requestedModel?: string): ChatResponse {
+  return {
+    ...response,
+    model: requestedModel ?? response.model,
+  };
+}
 
-  constructor(private readonly options: CodexCliOptions) {}
-
-  async healthCheck(): Promise<void> {
-    // TODO[M3]: spawn(cliPath, ['--version'])；验证已登录（无登录态要求用户 `codex login`）
-    throw new UpstreamError('codex', 'not-implemented');
+function toUpstreamError(error: unknown): UpstreamError {
+  if (error instanceof UpstreamError) {
+    return error;
   }
 
-  async chat(_req: ChatRequest): Promise<ChatResponse> {
-    // TODO[M3]: 子进程池 + stream JSON
-    throw new UpstreamError('codex', 'not-implemented');
+  const message = error instanceof Error ? error.message : String(error);
+  return new UpstreamError('codex', message, error);
+}
+
+export class CodexCliProvider extends CliProviderBase implements LLMProvider {
+  readonly name = 'codex' as const;
+
+  readonly supportsPromptCache = false;
+
+  readonly supportsVision = false;
+
+  constructor(options: CodexCliOptions) {
+    super(options);
+  }
+
+  async healthCheck(): Promise<void> {
+    try {
+      await this.runHealthCheck(['--version']);
+    } catch (error) {
+      throw toUpstreamError(error);
+    }
+  }
+
+  async chat(req: ChatRequest): Promise<ChatResponse> {
+    try {
+      const response = await this.runCommand({
+        args: this.buildArgs(req.model),
+        stdin: buildPrompt(req),
+      });
+      return withRequestedModel(response, req.model);
+    } catch (error) {
+      throw toUpstreamError(error);
+    }
   }
 
   async vision(_req: VisionRequest): Promise<VisionResponse> {
-    // TODO[M3]: 若 CLI 支持则走同一通道；不支持则抛 NOT_SUPPORTED 让 Router 降级
     throw new UpstreamError('codex', 'vision-not-supported');
+  }
+
+  private buildArgs(model?: string): string[] {
+    return [
+      'exec',
+      '--json',
+      '--model',
+      model ?? this.options.defaultModel,
+    ];
   }
 }

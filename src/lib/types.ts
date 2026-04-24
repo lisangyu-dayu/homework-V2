@@ -53,7 +53,7 @@ export interface Solution {
 export interface GradingResult {
   verdict: Verdict;
   studentAnswer: string | null;
-  errorType?: '概念不清' | '计算失误' | '漏解' | '题意偏差';
+  errorType?: string;
   comment: string;
 }
 

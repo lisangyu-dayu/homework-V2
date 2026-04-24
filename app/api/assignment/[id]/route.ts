@@ -1,10 +1,8 @@
-// GET /api/assignment/:id · 查询单份作业（M8 实现）
-// DELETE /api/assignment/:id · 删除作业（保留错题本快照）
-//
-// 鉴权：middleware 拦截无 cookie 请求；此处二次校验 child.id 归属。
 import { NextRequest, NextResponse } from 'next/server';
+import { deleteAssignmentCascade, getAssignmentDetailByIdForChild } from '@/db/dao/homeworkData';
 import { requireChildFromRequest } from '@/lib/auth';
 import { AuthError } from '@/lib/errors';
+import { authErrorResponse, errorResponse } from '@app/api/_lib/responses';
 
 export async function GET(
   req: NextRequest,
@@ -15,18 +13,16 @@ export async function GET(
   try {
     child = requireChildFromRequest(req);
   } catch (e) {
-    if (e instanceof AuthError) {
-      return NextResponse.json({ ok: false, error: { code: e.code, message: e.message } }, { status: 401 });
-    }
+    if (e instanceof AuthError) return authErrorResponse(e);
     throw e;
   }
 
-  // TODO[M8]: 从 DAO 取 assignment；若 assignment.childId !== child.id → 404
-  void child;
-  return NextResponse.json({
-    ok: true,
-    assignment: { id, status: 'TODO', majorQuestions: [] },
-  });
+  const assignment = getAssignmentDetailByIdForChild(id, child.id);
+  if (!assignment) {
+    return errorResponse(404, 'NOT_FOUND', 'assignment not found');
+  }
+
+  return NextResponse.json({ ok: true, assignment });
 }
 
 export async function DELETE(
@@ -38,18 +34,15 @@ export async function DELETE(
   try {
     child = requireChildFromRequest(req);
   } catch (e) {
-    if (e instanceof AuthError) {
-      return NextResponse.json({ ok: false, error: { code: e.code, message: e.message } }, { status: 401 });
-    }
+    if (e instanceof AuthError) return authErrorResponse(e);
     throw e;
   }
 
-  // TODO[M8]:
-  //   1) 校验 assignment.child_id === child.id（否则 404）
-  //   2) 级联删除 major_questions / sub_questions（ON DELETE CASCADE）
-  //   3) 删除 uploads/<assignmentId>/ 整目录
-  //   4) **错题本条目不受影响**：mistakes 自包含快照，不依赖 sub_questions
-  void child;
-  void id;
+  const assignment = getAssignmentDetailByIdForChild(id, child.id);
+  if (!assignment) {
+    return errorResponse(404, 'NOT_FOUND', 'assignment not found');
+  }
+
+  await deleteAssignmentCascade(id);
   return NextResponse.json({ ok: true });
 }
