@@ -16,6 +16,8 @@ Thumbs.db
 # local data
 data/db/*.db
 data/db/*.db-journal
+data/db/*.db-shm
+data/db/*.db-wal
 uploads/*
 !uploads/.gitkeep
 

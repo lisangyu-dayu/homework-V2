@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "db:init": "tsx scripts/init-db.ts",
     "db:seed-kp": "tsx scripts/seed-knowledge-points.ts",
+    "fixtures:check": "tsx scripts/check-fixtures.ts",
     "check:cli": "tsx scripts/check-cli.ts"
   },
   "dependencies": {

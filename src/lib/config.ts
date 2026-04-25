@@ -12,6 +12,7 @@ const ConfigSchema = z.object({
   codexDefaultModel: z.string().default('gpt-5.4'),
   codexPoolSize: z.number().int().min(1).max(16).default(3),
   codexTimeoutMs: z.number().int().default(120_000),
+  codexPoolMode: z.enum(['oneshot', 'hot']).default('oneshot'),
 
   // OpenClaw（微信中继）
   openclawWebhookSecret: z.string().min(8),
@@ -70,6 +71,7 @@ export function loadConfig(): AppConfig {
     codexDefaultModel: process.env.CODEX_DEFAULT_MODEL,
     codexPoolSize: process.env.CODEX_POOL_SIZE ? Number(process.env.CODEX_POOL_SIZE) : undefined,
     codexTimeoutMs: process.env.CODEX_TIMEOUT_MS ? Number(process.env.CODEX_TIMEOUT_MS) : undefined,
+    codexPoolMode: process.env.CODEX_POOL_MODE,
     openclawWebhookSecret: process.env.OPENCLAW_WEBHOOK_SECRET,
     openclawPushbackUrl: process.env.OPENCLAW_PUSHBACK_URL,
     port: process.env.PORT ? Number(process.env.PORT) : undefined,

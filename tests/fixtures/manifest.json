@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "createdAt": "2026-04-25",
+  "requirements": {
+    "minImages": 5,
+    "maxImages": 10,
+    "maxBytesPerImage": 2097152,
+    "requiredCoverage": [
+      "calculation",
+      "equation",
+      "choice",
+      "fill",
+      "application",
+      "function",
+      "geometry-calculation",
+      "geometry-proof-unmarked"
+    ]
+  },
+  "fixtures": [
+    {
+      "file": "g9_geometry_proof_001.jpg",
+      "grade": 9,
+      "coverage": ["geometry-proof-unmarked"],
+      "notes": "几何证明题。V1 不批证明题，E2E 时应降级为 unmarked。"
+    },
+    {
+      "file": "g9_geometry_calculation_001.jpg",
+      "grade": 9,
+      "coverage": ["geometry-calculation", "choice"],
+      "notes": "几何图形计算与选择题混合。"
+    },
+    {
+      "file": "g9_function_mixed_001.jpg",
+      "grade": 9,
+      "coverage": ["function", "calculation"],
+      "notes": "函数图像与代数计算混合页面。"
+    },
+    {
+      "file": "g8_calculation_fill_001.jpg",
+      "grade": 8,
+      "coverage": ["calculation", "fill"],
+      "notes": "计算与填空题混合页面。"
+    },
+    {
+      "file": "g8_choice_fill_001.jpg",
+      "grade": 8,
+      "coverage": ["choice", "fill"],
+      "notes": "选择题与填空题混合页面。"
+    },
+    {
+      "file": "g8_equation_calculation_001.jpg",
+      "grade": 8,
+      "coverage": ["equation", "calculation"],
+      "notes": "方程与基础计算混合页面。"
+    },
+    {
+      "file": "g7_application_table_001.jpg",
+      "grade": 7,
+      "coverage": ["application", "calculation"],
+      "notes": "表格情境应用题。"
+    },
+    {
+      "file": "g9_function_graph_001.jpg",
+      "grade": 9,
+      "coverage": ["function", "application"],
+      "notes": "函数图像情境应用题。"
+    },
+    {
+      "file": "g8_equation_application_001.jpg",
+      "grade": 8,
+      "coverage": ["equation", "application"],
+      "notes": "方程应用题页面。"
+    }
+  ]
+}

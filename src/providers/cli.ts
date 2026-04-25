@@ -20,6 +20,11 @@ export interface CliExecutionResult {
 
 export type CliExecutor = (request: CliExecutionRequest) => Promise<CliExecutionResult>;
 
+export interface CliRunner {
+  run(request: CliExecutionRequest): Promise<CliExecutionResult>;
+  close?(): Promise<void> | void;
+}
+
 class Semaphore {
   private active = 0;
 
@@ -118,6 +123,19 @@ export function createExecutor(): CliExecutor {
     });
     child.stdin.end(request.stdin ?? '');
   });
+}
+
+export function createOneShotRunner(options: {
+  executor?: CliExecutor;
+  poolSize: number;
+}): CliRunner {
+  const executor = options.executor ?? createExecutor();
+  const semaphore = new Semaphore(options.poolSize);
+  return {
+    run(request) {
+      return semaphore.run(() => executor(request));
+    },
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -271,30 +289,29 @@ export interface CliProviderCoreOptions {
   poolSize: number;
   timeoutMs: number;
   executor?: CliExecutor;
+  runner?: CliRunner;
 }
 
 export abstract class CliProviderBase {
-  protected readonly executor: CliExecutor;
-
-  private readonly semaphore: Semaphore;
+  protected readonly runner: CliRunner;
 
   protected constructor(protected readonly options: CliProviderCoreOptions) {
-    this.executor = options.executor ?? createExecutor();
-    this.semaphore = new Semaphore(options.poolSize);
+    this.runner = options.runner ?? createOneShotRunner({
+      executor: options.executor,
+      poolSize: options.poolSize,
+    });
   }
 
   protected runCommand(request: {
     args: string[];
     stdin: string;
   }): Promise<ChatResponse> {
-    return this.semaphore.run(async () => {
-      const result = await this.executor({
-        command: this.options.cliPath,
-        args: request.args,
-        stdin: request.stdin,
-        timeoutMs: this.options.timeoutMs,
-      });
-
+    return this.runner.run({
+      command: this.options.cliPath,
+      args: request.args,
+      stdin: request.stdin,
+      timeoutMs: this.options.timeoutMs,
+    }).then((result) => {
       if (result.exitCode !== 0) {
         throw new Error(result.stderr.trim() || result.stdout.trim() || `exit ${result.exitCode}`);
       }
@@ -309,7 +326,7 @@ export abstract class CliProviderBase {
   }
 
   protected async runHealthCheck(args: string[]): Promise<void> {
-    const result = await this.executor({
+    const result = await this.runner.run({
       command: this.options.cliPath,
       args,
       timeoutMs: this.options.timeoutMs,

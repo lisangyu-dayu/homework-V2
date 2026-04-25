@@ -23,6 +23,9 @@
 
 ```bash
 # 1) 本机先登录 Codex CLI（订阅模式的必要步骤）
+# 当前机器的 Codex CLI 安装在 Conda 虚拟环境 homework-v2 中：
+#   /home/lsy/miniconda3/envs/homework-v2/bin/codex
+conda activate homework-v2
 codex login
 # 可选：启用 Claude 兜底前再登录
 claude login
@@ -30,6 +33,7 @@ claude login
 # 2) 配置
 cp .env.example .env
 # 编辑 .env：生成 PARENT_LINK_SIGNING_SECRET（≥32 字节随机），填写 ADMIN_USER/PASS、OPENCLAW_*
+# 若不激活 Conda 环境运行服务，将 CODEX_CLI_PATH 设为上述 codex 绝对路径。
 
 # 3) 启动
 npm install

@@ -26,7 +26,7 @@
 - [x] 从公开"义务教育数学课程标准"提取 6-9 年级知识点树 ← *本次已完成：按 2022 版课标四大领域整理首版种子*
 - [x] 用 Claude 辅助转成 JSON（放在 `data/knowledge-points/math.json`）← *本次已完成*
 - [x] `scripts/seed-knowledge-points.ts` 导入到 SQLite ← *本次已完成：实跑导入 277 个节点*
-- [ ] 人工抽查 30 条确认命名/层级合理
+- [x] 人工抽查 30 条确认命名/层级合理 ← *本次已完成：按固定随机种子 `20260425` 抽样 30 条，人工确认通过*
 - [x] 目标：数学 ~300 个知识点节点 ← *本次已完成：首版自动展开后共 277 个节点，达到 V1 可用规模*
 
 ## Milestone M3 · Provider Adapter（3-4 天）· P0
@@ -44,7 +44,7 @@
   - [x] stdin/stdout JSON 解析、超时、错误码映射 ← *本次已完成*
   - [x] Router 对 `vision-not-supported` 自动降级 ← *本次已完成*
   - [x] **先实测 Codex CLI 视觉支持**（阻塞点）；不支持则 Router 不派发 vision ← *本次已完成：Codex CLI 支持 `exec --image`，Router 已切换为 Codex 优先*
-  - [ ] 真正常驻热进程池
+  - [x] 真正常驻热进程池 ← *本次已完成：`CODEX_POOL_MODE=hot` 时文本任务走常驻 `codex mcp-server` JSON-RPC worker 池；图片任务因 MCP schema 暂不支持 image，自动回退 `codex exec --image`*
 - [x] `src/providers/router.ts`：按 task + 环境变量覆盖选择（已有骨架）← *本次已完成*
 - [x] 集成测试：补 provider 单测覆盖关键路径 ← *本次已完成；真实 CLI 联调仍待本机登录环境*
 
@@ -124,13 +124,13 @@
 
 ## Milestone M9 · 调试页（1 天）· P1
 
-- [ ] `/debug/assignment/:id` Trace 页
-- [ ] `/debug/stats` 日统计
-- [ ] Basic Auth 中间件
+- [x] `/debug/assignment/:id` Trace 页 ← *本次已完成：按 assignmentId 展示题目结构、状态摘要与 workflow_traces 输入/输出/错误*
+- [x] `/debug/stats` 日统计 ← *本次已完成：展示全量计数、近 N 天日统计、最近作业入口*
+- [x] Basic Auth 中间件 ← *本次已完成：`/debug/*` 由 `ADMIN_USER` / `ADMIN_PASS` 保护*
 
 ## Milestone M10 · 测试与发布（1-2 天）· P0
 
-- [ ] 准备 5-10 张真实数学作业图作为回归集（`tests/fixtures/`）
+- [x] 准备 5-10 张真实数学作业图作为回归集（`tests/fixtures/`）← *本次已完成：整理 9 张真实 JPG，补 `manifest.json` 与静态校验脚本*
   - 覆盖：计算/解方程、选择、填空、应用题、函数、几何计算、**至少 1 道几何证明以验证正确降级为 unmarked**
 - [ ] E2E 手动跑：验收指标对齐（01-产品方案 §10）
   - P50 ≤ 45s / P90 ≤ 60s

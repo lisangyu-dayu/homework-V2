@@ -220,4 +220,72 @@ describe('db dao basics', () => {
     expect(traces[0]?.nodeName).toBe('preprocess');
     expect(traces[1]?.errorMsg).toBe('boom');
   });
+
+  it('aggregates debug daily stats and recent assignments', async () => {
+    const { getDb } = await import('@/db/client');
+    const { insertTrace } = await import('@/db/dao/traces');
+    const { getDebugStats } = await import('@/db/dao/debug');
+    const db = getDb();
+    const now = Date.now();
+
+    db.prepare(
+      'INSERT INTO children (id, openid, parent_token, created_at) VALUES (?, ?, ?, ?)',
+    ).run('ch_1', 'openid-1', 'pt_1', now);
+    db.prepare(
+      `INSERT INTO assignments (
+         id, short_id, child_id, subject, original_image_path, status, created_at,
+         completed_at, total_count, correct_count, wrong_count, unmarked_count
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run('as_1', 'short-1', 'ch_1', 'math', 'incoming/a.jpg', 'done', now, now + 1000, 3, 1, 1, 1);
+    db.prepare(
+      `INSERT INTO major_questions (id, assignment_id, number, order_index)
+       VALUES (?, ?, ?, ?)`,
+    ).run('mq_1', 'as_1', '一', 0);
+    db.prepare(
+      `INSERT INTO sub_questions (
+         id, major_id, number, order_index, crop_path, parsed_stem_json,
+         solution_steps_json, final_answer, confidence, verdict, explanation_md
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run('sq_1', 'mq_1', '(1)', 0, 'crops/as_1/sq_1.jpg', '{}', '[]', '1', 0.9, 'wrong', 'explain');
+    db.prepare(
+      `INSERT INTO mistakes (
+         id, child_id, snapshot_crop_path, snapshot_subject, snapshot_parsed_stem_json,
+         snapshot_solution_steps_json, snapshot_final_answer, snapshot_explanation_md,
+         snapshot_knowledge_tags_json, added_at, source, resolved
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run('mk_1', 'ch_1', 'mistakes/ch_1/mk_1.jpg', 'math', '{}', '[]', '1', 'explain', '[]', now, 'manual', 0);
+    db.prepare(
+      `INSERT INTO feedback (id, sub_question_id, feedback_type, created_at)
+       VALUES (?, ?, ?, ?)`,
+    ).run('fb_1', 'sq_1', 'wrong_grading', now);
+
+    insertTrace({ assignmentId: 'as_1', nodeName: 'preprocess', status: 'success', durationMs: 10 });
+    insertTrace({ assignmentId: 'as_1', nodeName: 'layoutSplit', status: 'failed', durationMs: 20, errorMsg: 'boom' });
+
+    const stats = getDebugStats({ days: 7, recentLimit: 5 });
+    expect(stats.totals).toMatchObject({
+      children: 1,
+      assignments: 1,
+      doneAssignments: 1,
+      subQuestions: 1,
+      mistakes: 1,
+      unresolvedMistakes: 1,
+      feedback: 1,
+      traces: 2,
+      failedTraces: 1,
+    });
+    expect(stats.daily).toHaveLength(1);
+    expect(stats.daily[0]).toMatchObject({
+      assignments: 1,
+      doneAssignments: 1,
+      correctQuestions: 1,
+      wrongQuestions: 1,
+      unmarkedQuestions: 1,
+      mistakes: 1,
+      feedback: 1,
+      failedTraces: 1,
+      traceDurationMs: 30,
+    });
+    expect(stats.recentAssignments[0]).toMatchObject({ id: 'as_1', shortId: 'short-1' });
+  });
 });

@@ -1,6 +1,7 @@
 import { loadConfig } from '@/lib/config';
 import { ClaudeCliProvider } from './claude';
 import { CodexCliProvider } from './codex';
+import { createCodexMcpRunner } from './codexHot';
 import type { LLMProvider, ProviderName, TaskKind } from './types';
 
 const taskPreference: Record<TaskKind, ProviderName[]> = {
@@ -30,6 +31,13 @@ function getSingletons() {
       defaultModel: cfg.codexDefaultModel,
       poolSize: cfg.codexPoolSize,
       timeoutMs: cfg.codexTimeoutMs,
+      runner: cfg.codexPoolMode === 'hot'
+        ? createCodexMcpRunner({
+          command: cfg.codexCliPath,
+          poolSize: cfg.codexPoolSize,
+          prewarmCount: 1,
+        })
+        : undefined,
     }),
   };
   return singletons;

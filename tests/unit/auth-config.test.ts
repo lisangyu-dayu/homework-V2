@@ -5,6 +5,10 @@ import { resetConfigCacheForTest } from '@/lib/config';
 import { buildShortLinkUrl } from '@/lib/auth';
 import { middleware } from '../../middleware';
 
+function basicAuth(value: string): string {
+  return `Basic ${Buffer.from(value, 'utf8').toString('base64')}`;
+}
+
 beforeEach(() => {
   process.env.PUBLIC_BASE_URL = 'http://127.0.0.1:3100';
   process.env.PARENT_LINK_SIGNING_SECRET = '1234567890abcdef1234567890abcdef';
@@ -41,6 +45,22 @@ describe('auth and config integration', () => {
     const redirectUrl = new URL(location!);
     expect(redirectUrl.pathname).toBe('/auth-required');
     expect(redirectUrl.searchParams.get('reason')).toBe('missing-cookie');
+  });
+
+  it('requires Basic Auth for debug pages', () => {
+    const missing = middleware(new NextRequest('http://localhost/debug/stats'));
+    expect(missing?.status).toBe(401);
+    expect(missing?.headers.get('www-authenticate')).toContain('homework-v2 debug');
+
+    const wrong = middleware(new NextRequest('http://localhost/debug/stats', {
+      headers: { authorization: basicAuth('admin:wrong') },
+    }));
+    expect(wrong?.status).toBe(401);
+
+    const ok = middleware(new NextRequest('http://localhost/debug/stats', {
+      headers: { authorization: basicAuth('admin:pass') },
+    }));
+    expect(ok?.status).toBe(200);
   });
 
   it('redacts sensitive fields in structured logs', async () => {
